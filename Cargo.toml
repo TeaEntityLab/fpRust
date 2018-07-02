@@ -1,0 +1,12 @@
+[package]
+name = "fp_rust"
+version = "0.1.0"
+license = "MIT"
+authors = ["JunYi JohnTeee Lee <johnteee@gmail.com>"]
+include = ["src/**/*", "Cargo.toml"]
+
+[dependencies]
+
+[[test]]
+name = "maybe"
+path = "src/maybe.rs"
