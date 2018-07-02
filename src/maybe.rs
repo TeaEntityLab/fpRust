@@ -10,7 +10,7 @@ impl <T> Maybe<T> {
             r: r,
         };
     }
-    fn from_val(r: T) -> Maybe<T> {
+    fn val(r: T) -> Maybe<T> {
         return Maybe::just(Some(r));
     }
 
@@ -22,6 +22,13 @@ impl <T> Maybe<T> {
     }
     fn null(self) -> bool {
         return ! self.present();
+    }
+
+    fn fmap(self, func: fn (Option<T>) -> Maybe<T> ) -> Maybe<T> {
+        return func(self.r);
+    }
+    fn map(self, func: fn (Option<T>) -> Option<T> ) -> Maybe<T> {
+        return Maybe::just(func(self.r));
     }
 
     fn option(self) -> Option<T> {
@@ -38,24 +45,32 @@ impl <T> Maybe<T> {
 #[test]
 fn test_maybe_present() {
     assert_eq!(false, Maybe::just(None::<bool>).present());
-    assert_eq!(true, Maybe::from_val(true).present());
+    assert_eq!(true, Maybe::val(true).present());
 
     assert_eq!(true, Maybe::just(None::<bool>).null());
-    assert_eq!(false, Maybe::from_val(true).null());
+    assert_eq!(false, Maybe::val(true).null());
+}
+#[test]
+fn test_maybe_flatmap() {
+    assert_eq!(false, Maybe::val(true).fmap(|x| {return Maybe::val(!x.unwrap())}).unwrap());
+    assert_eq!(true, Maybe::val(false).fmap(|x| {return Maybe::val(!x.unwrap())}).unwrap());
+
+    assert_eq!(false, Maybe::val(true).map(|x| {return Some(!x.unwrap())}).unwrap());
+    assert_eq!(true, Maybe::val(false).map(|x| {return Some(!x.unwrap())}).unwrap());
 }
 #[test]
 fn test_maybe_unwrap() {
 
     assert_eq!(false, Maybe::just(None::<bool>).or(false));
-    assert_eq!(true, Maybe::from_val(true).or(false));
+    assert_eq!(true, Maybe::val(true).or(false));
 
     let none_unwrap = panic::catch_unwind(|| {
         Maybe::just(None::<bool>).unwrap();
     });
     assert_eq!(true, none_unwrap.is_err());
-    assert_eq!(true, Maybe::from_val(true).unwrap());
+    assert_eq!(true, Maybe::val(true).unwrap());
 
-    assert_eq!(true, match Maybe::from_val(true).option() {
+    assert_eq!(true, match Maybe::val(true).option() {
         None => false,
         Some(_x) => true,
     });
