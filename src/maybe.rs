@@ -16,12 +16,21 @@ impl <T> Maybe<T> {
 
     fn present(self) -> bool {
         match self.r {
-            Some(ref _x) => return true,
+            Some(_x) => return true,
             None => return false,
         }
     }
     fn null(self) -> bool {
-        return ! self.present();
+        match self.r {
+            Some(_x) => return false,
+            None => return true,
+        }
+    }
+    fn let_do(self, func: fn (T)) {
+        match self.r {
+            Some(_x) => func(_x),
+            None => (),
+        }
     }
 
     fn fmap(self, func: fn (Option<T>) -> Maybe<T> ) -> Maybe<T> {
@@ -49,6 +58,16 @@ fn test_maybe_present() {
 
     assert_eq!(true, Maybe::just(None::<bool>).null());
     assert_eq!(false, Maybe::val(true).null());
+
+    // let mut val;
+    //
+    // val = false;
+    // Maybe::just(None::<bool>).let_do(|x| {val = x});
+    // assert_eq!(false, val);
+    //
+    // val = false;
+    // Maybe::val(true).let_do(|x| {val = x});
+    // assert_eq!(true, val);
 }
 #[test]
 fn test_maybe_flatmap() {
