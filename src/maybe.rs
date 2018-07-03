@@ -93,8 +93,14 @@ fn test_maybe_flatmap() {
     assert_eq!(false, Maybe::val(true).map(|x| {return Some(!x.unwrap())}).unwrap());
     assert_eq!(true, Maybe::val(false).map(|x| {return Some(!x.unwrap())}).unwrap());
 
-    assert_eq!(2, Maybe::val(1).ap(
-        Maybe::val(|x: Option<i16>| {return Some(x.unwrap() + 1)})
+    assert_eq!(true, Maybe::val(1).ap(
+        Maybe::val(|x: Option<i16>| {
+            if (x.unwrap() > 0) {
+                return Some(true)
+            } else {
+                return Some(false)
+            }
+        })
     ).unwrap());
 }
 #[test]
