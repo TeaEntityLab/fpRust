@@ -26,9 +26,9 @@ impl <T> Maybe<T> {
             None => return true,
         }
     }
-    fn let_do(self, func: fn (T)) {
+    fn let_do<F>(self, mut func: F) where F : FnMut (T) {
         match self.r {
-            Some(_x) => func(_x),
+            Some(mut _x) => func(_x),
             None => (),
         }
     }
@@ -59,15 +59,15 @@ fn test_maybe_present() {
     assert_eq!(true, Maybe::just(None::<bool>).null());
     assert_eq!(false, Maybe::val(true).null());
 
-    // let mut val;
-    //
-    // val = false;
-    // Maybe::just(None::<bool>).let_do(|x| {val = x});
-    // assert_eq!(false, val);
-    //
-    // val = false;
-    // Maybe::val(true).let_do(|x| {val = x});
-    // assert_eq!(true, val);
+    let mut val;
+
+    val = false;
+    Maybe::just(None::<bool>).let_do(|x| {val = x});
+    assert_eq!(false, val);
+
+    val = false;
+    Maybe::val(true).let_do(|x| {val = x});
+    assert_eq!(true, val);
 }
 #[test]
 fn test_maybe_flatmap() {
