@@ -5,6 +5,9 @@ license = "MIT"
 authors = ["JunYi JohnTeee Lee <johnteee@gmail.com>"]
 include = ["src/**/*.rs", "Cargo.toml"]
 description = "Implement fp features for Rust"
+documentation = "https://github.com/TeaEntityLab/fpRust/blob/master/README.md"
+homepage = "https://github.com/TeaEntityLab/fpRust"
+repository = "https://github.com/TeaEntityLab/fpRust"
 
 [dependencies]
 
