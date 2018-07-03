@@ -1,6 +1,6 @@
 use std::panic;
 
-struct Maybe<T> {
+pub struct Maybe<T> {
     r : Option<T>
 }
 

@@ -9,6 +9,13 @@ documentation = "https://github.com/TeaEntityLab/fpRust/blob/master/README.md"
 homepage = "https://github.com/TeaEntityLab/fpRust"
 repository = "https://github.com/TeaEntityLab/fpRust"
 
+[lib]
+name = "fp_rust"
+path = "src/lib.rs"
+
+[features]
+default = []
+
 [dependencies]
 
 [[test]]
