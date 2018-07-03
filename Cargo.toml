@@ -3,7 +3,8 @@ name = "fp_rust"
 version = "0.1.0"
 license = "MIT"
 authors = ["JunYi JohnTeee Lee <johnteee@gmail.com>"]
-include = ["src/**/*", "Cargo.toml"]
+include = ["src/**/*.rs", "Cargo.toml"]
+description = "Implement fp features for Rust"
 
 [dependencies]
 
