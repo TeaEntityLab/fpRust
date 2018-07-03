@@ -10,6 +10,9 @@ impl <T> Maybe<T> {
             r: r,
         };
     }
+    pub fn of(r: Option<T>) -> Maybe<T> {
+        return Maybe::just(r);
+    }
     pub fn val(r: T) -> Maybe<T> {
         return Maybe::just(Some(r));
     }
@@ -28,16 +31,29 @@ impl <T> Maybe<T> {
     }
     pub fn let_do<F>(self, mut func: F) where F : FnMut (T) {
         match self.r {
-            Some(mut _x) => func(_x),
+            Some(_x) => func(_x),
             None => (),
         }
     }
 
-    pub fn fmap(self, func: fn (Option<T>) -> Maybe<T> ) -> Maybe<T> {
+    pub fn fmap<F, G>(self, func: F) -> Maybe<G>
+        where F: FnOnce (Option<T>) -> Maybe<G> {
         return func(self.r);
     }
-    pub fn map(self, func: fn (Option<T>) -> Option<T> ) -> Maybe<T> {
+    pub fn map<F, G>(self, func: F) -> Maybe<G> where F: FnOnce (Option<T>) -> Option<G> {
         return Maybe::just(func(self.r));
+    }
+    pub fn bind<F, G>(self, func: F) -> Maybe<G> where F: FnOnce (Option<T>) -> Option<G> {
+        return self.map(func);
+    }
+    pub fn then<F, G>(self, func: F) -> Maybe<G> where F: FnOnce (Option<T>) -> Option<G> {
+        return self.map(func);
+    }
+    pub fn chain<F, G>(self, func: F) -> Maybe<G> where F: FnOnce (Option<T>) -> Maybe<G> {
+        return self.fmap(func);
+    }
+    pub fn ap<F, G>(self, maybe_func: Maybe<F>) -> Maybe<G> where F: FnOnce (Option<T>) -> Option<G> {
+        return maybe_func.chain(move |f| self.map(f.unwrap()));
     }
 
     pub fn option(self) -> Option<T> {
@@ -76,6 +92,10 @@ fn test_maybe_flatmap() {
 
     assert_eq!(false, Maybe::val(true).map(|x| {return Some(!x.unwrap())}).unwrap());
     assert_eq!(true, Maybe::val(false).map(|x| {return Some(!x.unwrap())}).unwrap());
+
+    assert_eq!(2, Maybe::val(1).ap(
+        Maybe::val(|x: Option<i16>| {return Some(x.unwrap() + 1)})
+    ).unwrap());
 }
 #[test]
 fn test_maybe_unwrap() {
