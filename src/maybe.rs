@@ -5,48 +5,48 @@ pub struct Maybe<T> {
 }
 
 impl <T> Maybe<T> {
-    fn just(r: Option<T>) -> Maybe<T> {
+    pub fn just(r: Option<T>) -> Maybe<T> {
         return Maybe {
             r: r,
         };
     }
-    fn val(r: T) -> Maybe<T> {
+    pub fn val(r: T) -> Maybe<T> {
         return Maybe::just(Some(r));
     }
 
-    fn present(self) -> bool {
+    pub fn present(self) -> bool {
         match self.r {
             Some(_x) => return true,
             None => return false,
         }
     }
-    fn null(self) -> bool {
+    pub fn null(self) -> bool {
         match self.r {
             Some(_x) => return false,
             None => return true,
         }
     }
-    fn let_do<F>(self, mut func: F) where F : FnMut (T) {
+    pub fn let_do<F>(self, mut func: F) where F : FnMut (T) {
         match self.r {
             Some(mut _x) => func(_x),
             None => (),
         }
     }
 
-    fn fmap(self, func: fn (Option<T>) -> Maybe<T> ) -> Maybe<T> {
+    pub fn fmap(self, func: fn (Option<T>) -> Maybe<T> ) -> Maybe<T> {
         return func(self.r);
     }
-    fn map(self, func: fn (Option<T>) -> Option<T> ) -> Maybe<T> {
+    pub fn map(self, func: fn (Option<T>) -> Option<T> ) -> Maybe<T> {
         return Maybe::just(func(self.r));
     }
 
-    fn option(self) -> Option<T> {
+    pub fn option(self) -> Option<T> {
         return self.r;
     }
-    fn unwrap(self) -> T {
+    pub fn unwrap(self) -> T {
         return self.r.unwrap();
     }
-    fn or(self, val: T) -> T {
+    pub fn or(self, val: T) -> T {
         return self.r.unwrap_or(val);
     }
 }
