@@ -9,12 +9,18 @@ pub struct MonadIO<F> {
 
 impl <F> MonadIO<F> {
 
-    // pub fn just<F2, Y>(r :Y) -> MonadIO<F2> where F2: Fn(bool) -> Y {
-    //     return MonadIO::new(|x: bool| r);
+    // pub fn just<Y>(r :Y) -> MonadIO<F> {
+    //     return MonadIO::new(|x| r);
     // }
-    pub fn new<F2, X, Y>(effect: F2) -> MonadIO<F2> where F2: Fn(X) -> Y {
+    pub fn new(effect: F) -> MonadIO<F> {
         return MonadIO {
             effect,
         }
     }
+}
+
+#[test]
+fn test_monadio_new() {
+    let f = MonadIO::new(|x| x*3).effect;
+    assert_eq!(9, (f)(3));
 }
