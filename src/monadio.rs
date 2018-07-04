@@ -1,25 +1,20 @@
 
 use std::panic;
-use std::marker::PhantomData;
 
-pub struct MonadIO<F, X, Y> where F: FnOnce(X) -> Y {
+type F<X, Y> = Fn(X) -> Y;
+
+pub struct MonadIO<F> {
     effect : F,
-
-    _p01: PhantomData<X>,
-    _p02: PhantomData<Y>,
 }
 
-impl <F, X, Y> MonadIO<F, X, Y> where F: FnOnce(X) -> Y {
+impl <F> MonadIO<F> {
 
-    // pub fn just(r :& Y) -> MonadIO<F, X, Y> {
-    //     return MonadIO::new(|x| *r);
+    // pub fn just<F2, Y>(r :Y) -> MonadIO<F2> where F2: Fn(bool) -> Y {
+    //     return MonadIO::new(|x: bool| r);
     // }
-    pub fn new<F2>(effect: F2) -> MonadIO<F2, X, Y> where F2: FnOnce(X) -> Y {
+    pub fn new<F2, X, Y>(effect: F2) -> MonadIO<F2> where F2: Fn(X) -> Y {
         return MonadIO {
             effect,
-
-            _p01:PhantomData,
-            _p02:PhantomData,
         }
     }
 }
