@@ -1,4 +1,6 @@
 
+pub type FnNext<X> = FnOnce(X);
+
 pub struct Subscription<X> {
-    onNext : FnOnce(X),
+    pub onNext : FnNext<X>,
 }

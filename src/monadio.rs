@@ -3,12 +3,7 @@ use std::panic;
 // use std::rc::Rc;
 
 use common::Subscription;
-
-// type F<Y> = FnOnce() -> Y;
-//
-// fn _just<Y: 'static>(r :Y) -> Box<F<Y>> {
-//     return Box::new(|| r);
-// }
+use common::FnNext;
 
 pub struct MonadIO<Y, F: FnOnce()->Y> {
     effect : F,
@@ -16,22 +11,31 @@ pub struct MonadIO<Y, F: FnOnce()->Y> {
 
 impl <Y, EFFECT: FnOnce()->Y> MonadIO<Y, EFFECT> {
 
-    // pub fn just<Y2: 'static, F2: FnOnce()->Y2>(r :Y2) -> MonadIO<Y2, F2> {
+    // pub fn just<Z: 'static, F2: FnOnce()->Z>(r :Z) -> MonadIO<Z, impl FnOnce()->Z> {
     //     return MonadIO::new(|| r);
     // }
+
     pub fn new(effect: EFFECT) -> MonadIO<Y, EFFECT> {
         return MonadIO {
             effect,
         }
     }
 
-    // pub fn fmap<Z, F: FnOnce(Y)->Z, EFFECT2: FnOnce()->Z>(self, func: F) -> MonadIO<Z, EFFECT2> {
-    //     return MonadIO::new(|| func((self.effect)()));
-    // }
+    pub fn fmap<Z, F: FnOnce(Y)->Z>(self, func: F) -> MonadIO<Z, impl FnOnce()->Z> {
+        return MonadIO::new(move || func( (self.effect)() ));
+    }
+    pub fn subscribe(self, func: impl FnOnce(Y)) {
+        (func)( (self.effect)() )
+    }
 }
 
 #[test]
 fn test_monadio_new() {
-    let f1 = MonadIO::new(|| 3).effect;
-    assert_eq!(3, (f1)());
+    let f1 = MonadIO::new(|| 3);
+    assert_eq!(3, (f1.effect)());
+    let f2 = f1.fmap(|x| x*3);
+
+    let mut v = 0;
+    f2.subscribe(|x| v = x);
+    assert_eq!(9, v);
 }
