@@ -14,16 +14,20 @@ pub struct MonadIO<Y, F: FnOnce()->Y> {
     effect : F,
 }
 
-impl <Y, F: FnOnce()->Y> MonadIO<Y, F> {
+impl <Y, EFFECT: FnOnce()->Y> MonadIO<Y, EFFECT> {
 
     // pub fn just<Y2: 'static, F2: FnOnce()->Y2>(r :Y2) -> MonadIO<Y2, F2> {
     //     return MonadIO::new(|| r);
     // }
-    pub fn new(effect: F) -> MonadIO<Y, F> {
+    pub fn new(effect: EFFECT) -> MonadIO<Y, EFFECT> {
         return MonadIO {
             effect,
         }
     }
+
+    // pub fn fmap<Z, F: FnOnce(Y)->Z, EFFECT2: FnOnce()->Z>(self, func: F) -> MonadIO<Z, EFFECT2> {
+    //     return MonadIO::new(|| func((self.effect)()));
+    // }
 }
 
 #[test]
