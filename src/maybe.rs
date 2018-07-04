@@ -53,7 +53,7 @@ impl <T> Maybe<T> {
         return self.fmap(func);
     }
     pub fn ap<F, G>(self, maybe_func: Maybe<F>) -> Maybe<G> where F: FnOnce (Option<T>) -> Option<G> {
-        return maybe_func.chain(move |f| self.map(f.unwrap()));
+        return maybe_func.chain(|f| self.map(f.unwrap()));
     }
 
     pub fn option(self) -> Option<T> {
