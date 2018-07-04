@@ -4,11 +4,11 @@ use std::panic;
 
 use common::Subscription;
 
-type F<X, Y> = FnOnce(X) -> Y;
+type F<Y> = FnOnce() -> Y;
 
-// fn _just<Y: 'static>(r :Y) -> Box<F<Option<bool>, Y>> {
-//     return Box::new(|_x: Option<bool>| r);
-// }
+fn _just<Y: 'static>(r :Y) -> Box<F<Y>> {
+    return Box::new(|| r);
+}
 
 pub struct MonadIO<F> {
     effect : F,
@@ -16,8 +16,10 @@ pub struct MonadIO<F> {
 
 impl <F> MonadIO<F> {
 
-    // pub fn just<X, Y: 'static>(r :Y) -> MonadIO<F> {
-    //     return MonadIO::new(*_just(r));
+    // pub fn just<Y: 'static>(r :Y) -> MonadIO<F> {
+    //     return MonadIO {
+    //         effect: || r,
+    //     };
     // }
     pub fn new(effect: F) -> MonadIO<F> {
         return MonadIO {
@@ -28,7 +30,6 @@ impl <F> MonadIO<F> {
 
 #[test]
 fn test_monadio_new() {
-    let f1 = MonadIO::new(|x| 3).effect;
-    let f2 = MonadIO::new(|x| x*3).effect;
-    assert_eq!(9, (f2)((f1)(0)));
+    let f1 = MonadIO::new(|| 3).effect;
+    assert_eq!(3, (f1)());
 }
