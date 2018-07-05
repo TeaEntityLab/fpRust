@@ -4,8 +4,8 @@
 
 use common::Subscription;
 
-pub struct MonadIO<Y, F : FnOnce()->Y> {
-    effect : F,
+pub struct MonadIO<Y, EFFECT : FnOnce()->Y> {
+    effect : EFFECT,
 }
 
 impl <Y, EFFECT : FnOnce()->Y> MonadIO<Y, EFFECT> {
