@@ -1,6 +1,6 @@
 [package]
 name = "fp_rust"
-version = "0.1.4"
+version = "0.1.5"
 license = "MIT"
 authors = ["JunYi JohnTeee Lee <johnteee@gmail.com>"]
 include = ["src/**/*.rs", "Cargo.toml"]
@@ -17,7 +17,3 @@ path = "src/lib.rs"
 default = []
 
 [dependencies]
-
-[[test]]
-name = "maybe"
-path = "src/maybe.rs"

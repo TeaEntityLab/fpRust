@@ -1,6 +1,6 @@
 
-use std::panic;
-use std::rc::Rc;
+// use std::panic;
+// use std::rc::Rc;
 
 use common::Subscription;
 
@@ -24,7 +24,7 @@ impl <Y, EFFECT : FnOnce()->Y> MonadIO<Y, EFFECT> {
         return MonadIO::new(move || func( (self.effect)() ));
     }
     pub fn subscribe(self, s : &mut impl Subscription<Y>) {
-        s.onNext( (self.effect)() )
+        s.on_next( (self.effect)() )
     }
     pub fn subscribe_fn(self, func : impl FnOnce(Y)) {
         (func)( (self.effect)() )
@@ -42,15 +42,15 @@ fn test_monadio_new() {
     assert_eq!(9, v);
 
     v = 0;
-    struct s1 {
+    struct S1 {
         pub result : i16,
     };
-    impl Subscription<i16> for s1 {
-        fn onNext(&mut self, x : i16) {
+    impl Subscription<i16> for S1 {
+        fn on_next(&mut self, x : i16) {
             self.result = x
         }
     }
-    let mut s = s1{
+    let mut s = S1{
         result : 0,
     };
     let f3 = MonadIO::new(|| 3).fmap(|x| x*3).fmap(|x| x*3);

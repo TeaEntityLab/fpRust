@@ -1,4 +1,4 @@
 
 pub trait Subscription<X> {
-    fn onNext(&mut self, x : X);
+    fn on_next(&mut self, x : X);
 }
