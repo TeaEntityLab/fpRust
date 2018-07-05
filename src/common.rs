@@ -8,29 +8,24 @@ pub trait Handler {
     fn post(&mut self, func: impl FnOnce());
 }
 
-pub struct HandlerThread {
+pub struct HandlerThread<'a> {
     cancel: bool,
     terminated: bool,
-    th : &'static thread::Thread,
+    th : &'a thread::Thread,
 }
 
-impl HandlerThread {
-    // fn new() -> HandlerThread {
-    //     let joinHandle = &thread::spawn(|| {
-    //
-    //     });
-    //     let thread = joinHandle.thread();
-    //
-    //     return HandlerThread {
-    //         cancel: false,
-    //         terminated: false,
-    //
-    //         th: &thread,
-    //     }
-    // }
+impl <'a> HandlerThread<'a> {
+    fn new(th : &'a thread::Thread) -> HandlerThread {
+        return HandlerThread {
+            cancel: false,
+            terminated: false,
+
+            th: th,
+        }
+    }
 }
 
-impl Handler for HandlerThread {
+impl <'a> Handler for HandlerThread<'a> {
     fn post(&mut self, func: impl FnOnce()) {
 
     }
