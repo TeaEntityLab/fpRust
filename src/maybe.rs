@@ -29,7 +29,7 @@ impl <T> Maybe<T> {
             None => return true,
         }
     }
-    pub fn let_do<F>(self, mut func : F) where F : FnMut (T) {
+    pub fn let_do<F>(self, func : F) where F : FnOnce (T) {
         match self.r {
             Some(_x) => func(_x),
             None => (),
