@@ -5,15 +5,15 @@ pub struct Maybe<T> {
 }
 
 impl <T> Maybe<T> {
-    pub fn just(r: Option<T>) -> Maybe<T> {
+    pub fn just(r : Option<T>) -> Maybe<T> {
         return Maybe {
-            r: r,
+            r : r,
         };
     }
-    pub fn of(r: Option<T>) -> Maybe<T> {
+    pub fn of(r : Option<T>) -> Maybe<T> {
         return Maybe::just(r);
     }
-    pub fn val(r: T) -> Maybe<T> {
+    pub fn val(r : T) -> Maybe<T> {
         return Maybe::just(Some(r));
     }
 
@@ -29,30 +29,30 @@ impl <T> Maybe<T> {
             None => return true,
         }
     }
-    pub fn let_do<F>(self, mut func: F) where F : FnMut (T) {
+    pub fn let_do<F>(self, mut func : F) where F : FnMut (T) {
         match self.r {
             Some(_x) => func(_x),
             None => (),
         }
     }
 
-    pub fn fmap<F, G>(self, func: F) -> Maybe<G>
-        where F: FnOnce (Option<T>) -> Maybe<G> {
+    pub fn fmap<F, G>(self, func : F) -> Maybe<G>
+        where F : FnOnce (Option<T>) -> Maybe<G> {
         return func(self.r);
     }
-    pub fn map<F, G>(self, func: F) -> Maybe<G> where F: FnOnce (Option<T>) -> Option<G> {
+    pub fn map<F, G>(self, func : F) -> Maybe<G> where F : FnOnce (Option<T>) -> Option<G> {
         return Maybe::just(func(self.r));
     }
-    pub fn bind<F, G>(self, func: F) -> Maybe<G> where F: FnOnce (Option<T>) -> Option<G> {
+    pub fn bind<F, G>(self, func : F) -> Maybe<G> where F : FnOnce (Option<T>) -> Option<G> {
         return self.map(func);
     }
-    pub fn then<F, G>(self, func: F) -> Maybe<G> where F: FnOnce (Option<T>) -> Option<G> {
+    pub fn then<F, G>(self, func : F) -> Maybe<G> where F : FnOnce (Option<T>) -> Option<G> {
         return self.map(func);
     }
-    pub fn chain<F, G>(self, func: F) -> Maybe<G> where F: FnOnce (Option<T>) -> Maybe<G> {
+    pub fn chain<F, G>(self, func : F) -> Maybe<G> where F : FnOnce (Option<T>) -> Maybe<G> {
         return self.fmap(func);
     }
-    pub fn ap<F, G>(self, maybe_func: Maybe<F>) -> Maybe<G> where F: FnOnce (Option<T>) -> Option<G> {
+    pub fn ap<F, G>(self, maybe_func : Maybe<F>) -> Maybe<G> where F : FnOnce (Option<T>) -> Option<G> {
         return maybe_func.chain(|f| self.map(f.unwrap()));
     }
 
@@ -62,7 +62,7 @@ impl <T> Maybe<T> {
     pub fn unwrap(self) -> T {
         return self.r.unwrap();
     }
-    pub fn or(self, val: T) -> T {
+    pub fn or(self, val : T) -> T {
         return self.r.unwrap_or(val);
     }
 }
