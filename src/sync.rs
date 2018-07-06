@@ -6,7 +6,7 @@ use std::sync::{
     mpsc,
 };
 
-pub struct Queue<T> {
+pub struct BlockingQueue<T> {
     lock: Arc<Mutex<u16>>,
     condvar: Arc<Condvar>,
     blockingSender: mpsc::Sender<u16>,
@@ -15,11 +15,11 @@ pub struct Queue<T> {
     queue: Vec<T>,
 }
 
-impl <T> Queue<T> {
-    pub fn new() -> Queue<T> {
+impl <T> BlockingQueue<T> {
+    pub fn new() -> BlockingQueue<T> {
         let (blockingSender,blockingRecever) = mpsc::channel();
 
-        return Queue {
+        return BlockingQueue {
             lock: Arc::new(Mutex::new(0_u16)),
             condvar: Arc::new(Condvar::new()),
             blockingSender,
