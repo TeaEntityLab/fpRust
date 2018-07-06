@@ -1,35 +1,35 @@
 use std::{sync, thread, time};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub trait Handler {
-    fn post(&mut self, func: impl FnOnce());
+use sync as fpSync;
+
+pub trait Handler<Functor> {
+    fn post(&mut self, func : Functor);
 }
 
-pub struct HandlerThread {
+pub struct HandlerThread<Functor> {
     alive: sync::Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
+    q: fpSync::BlockingQueue<Functor>,
 }
 
-impl HandlerThread {
-    pub fn new() -> HandlerThread {
+impl <Functor : FnOnce() + Send> HandlerThread<Functor> {
+    pub fn new() -> HandlerThread<Functor> {
         HandlerThread {
             handle: None,
             alive: sync::Arc::new(AtomicBool::new(false)),
+            q: <fpSync::BlockingQueue<Functor>>::new(),
         }
     }
 
-    pub fn start<F>(&mut self, fun: F)
-        where F: 'static + Send + FnMut() -> ()
-    {
+    pub fn start(&mut self) {
         self.alive.store(true, Ordering::SeqCst);
 
         let alive = self.alive.clone();
 
         self.handle = Some(thread::spawn(move || {
-            let mut fun = fun;
             while alive.load(Ordering::SeqCst) {
-                fun();
-                thread::sleep(time::Duration::from_millis(10));
+                // let v = &self.q.take();
             }
         }));
     }
@@ -42,8 +42,14 @@ impl HandlerThread {
     }
 }
 
-impl Handler for HandlerThread {
-    fn post(&mut self, func: impl FnOnce()) {
-
+impl <Functor : FnOnce()> Handler<Functor> for HandlerThread<Functor> {
+    fn post(&mut self, func: Functor) {
+        self.q.put(func);
     }
+}
+
+#[test]
+fn test_handler_new() {
+
+    // let h = HandlerThread::new();
 }
