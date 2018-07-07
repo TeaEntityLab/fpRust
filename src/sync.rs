@@ -9,8 +9,8 @@ use std::sync::{
 pub struct BlockingQueue<T> {
     lock: Arc<Mutex<u16>>,
     condvar: Arc<Condvar>,
-    blockingSender: mpsc::Sender<u16>,
-    blockingRecever: mpsc::Receiver<u16>,
+    blockingSender: Mutex<mpsc::Sender<u16>>,
+    blockingRecever: Mutex<mpsc::Receiver<u16>>,
 
     queue: Vec<T>,
 }
@@ -22,8 +22,8 @@ impl <T> BlockingQueue<T> {
         return BlockingQueue {
             lock: Arc::new(Mutex::new(0_u16)),
             condvar: Arc::new(Condvar::new()),
-            blockingSender,
-            blockingRecever,
+            blockingSender: Mutex::new(blockingSender),
+            blockingRecever: Mutex::new(blockingRecever),
 
             queue: vec!(),
         };
@@ -34,7 +34,9 @@ impl <T> BlockingQueue<T> {
             let lock = self.lock.lock().unwrap();
 
             self.queue.push(v);
-            self.blockingSender.send(0);
+            {
+                self.blockingSender.lock().unwrap().send(0);
+            }
         }
     }
 
@@ -63,7 +65,9 @@ impl <T> BlockingQueue<T> {
                 None => (),
             }
 
-            let okNext = self.blockingRecever.recv();
+            {
+                let okNext = self.blockingRecever.lock().unwrap().recv();
+            }
         }
     }
 }
