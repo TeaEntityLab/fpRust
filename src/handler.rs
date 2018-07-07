@@ -33,7 +33,7 @@ impl HandlerThread {
         return new_one;
     }
 
-    pub fn start(&'static mut self) {
+    pub fn start(&'static mut self) -> Arc<&'static mut HandlerThread> {
         self.alive.store(true, Ordering::SeqCst);
         let alive = self.alive.clone();
 
@@ -45,6 +45,8 @@ impl HandlerThread {
         let mut myself = Arc::new(self);
         let mut _me = myself.clone();
         let me = Arc::get_mut(&mut _me).unwrap();
+
+        let meReturn = myself.clone();
 
         me.handle = Arc::new(Some(thread::spawn(move || {
             let mut _me = myself.clone();
@@ -61,6 +63,8 @@ impl HandlerThread {
                 v.invoke();
             }
         })));
+
+        return meReturn;
     }
 
     pub fn stop(&mut self) {
@@ -87,10 +91,7 @@ impl Handler for HandlerThread {
 fn test_handler_new() {
 
     let mut __h = HandlerThread::new();
-    let mut _h = Arc::new(__h);
-
-    // let mut h1 : &'static mut HandlerThread = &mut _h.clone();
-    // // Arc::get_mut(&mut h1).unwrap().start();
-    // let mut h2 : &'static mut HandlerThread = &mut _h.clone();
+    // let mut _h = __h.start();
+    // let mut h1 = _h.clone();
     // Arc::get_mut(h2).unwrap().post(RawFunc::new(||{}));
 }
