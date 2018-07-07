@@ -6,6 +6,13 @@ use std::sync::{
     mpsc,
 };
 
+pub trait Queue<T> {
+    fn offer(&mut self, mut v : T);
+    fn poll(&mut self) -> Option<T>;
+    fn put(&mut self, mut v : T);
+    fn take(&mut self) -> T;
+}
+
 pub struct BlockingQueue<T> {
     lock: Arc<Mutex<u16>>,
     condvar: Arc<Condvar>,
@@ -28,8 +35,10 @@ impl <T> BlockingQueue<T> {
             queue: vec!(),
         };
     }
+}
 
-    pub fn offer(&mut self, mut v : T) {
+impl <T> Queue<T> for BlockingQueue<T> {
+    fn offer(&mut self, mut v : T) {
         {
             let lock = self.lock.lock().unwrap();
 
@@ -40,7 +49,7 @@ impl <T> BlockingQueue<T> {
         }
     }
 
-    pub fn poll(&mut self) -> Option<T> {
+    fn poll(&mut self) -> Option<T> {
         let mut v : Option<T>;
 
         {
@@ -52,13 +61,13 @@ impl <T> BlockingQueue<T> {
         return v;
     }
 
-    pub fn put(&mut self, mut v : T) {
+    fn put(&mut self, mut v : T) {
         // NOTE Currently there's no maximum size of BlockingQueue.
 
         self.offer(v);
     }
 
-    pub fn take(&mut self) -> T {
+    fn take(&mut self) -> T {
         loop {
             match self.poll() {
                 Some(_x) => return _x,

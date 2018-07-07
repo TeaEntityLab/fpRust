@@ -1,31 +1,28 @@
 use std::{sync, thread, time};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 use sync as fpSync;
+use sync::{Queue};
 
 pub trait Handler<Functor> {
     fn post(&mut self, func : Functor);
 }
 
 pub struct HandlerThread<Functor> {
-    // this: Option<sync::Arc<HandlerThread<Functor>>>,
-
-    alive: sync::Arc<AtomicBool>,
+    alive: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
-    q: fpSync::BlockingQueue<Functor>,
+    q: Arc<fpSync::BlockingQueue<Functor>>,
 }
 
 impl <Functor : FnOnce() + Send + Sync> HandlerThread<Functor> {
     pub fn new() -> HandlerThread<Functor> {
-        let mut newOne = HandlerThread {
-            // this: None,
-
+        let mut new_one = HandlerThread {
             handle: None,
-            alive: sync::Arc::new(AtomicBool::new(false)),
-            q: <fpSync::BlockingQueue<Functor>>::new(),
+            alive: Arc::new(AtomicBool::new(false)),
+            q: Arc::new(<fpSync::BlockingQueue<Functor>>::new()),
         };
 
-        return newOne;
+        return new_one;
     }
 
     pub fn start(mut self) {
@@ -33,12 +30,9 @@ impl <Functor : FnOnce() + Send + Sync> HandlerThread<Functor> {
 
         let alive = self.alive.clone();
 
-        // self.this = Some(sync::Arc::new(self));
-        // let this = self.this.unwrap().clone();
-        let this = sync::Arc::new(self);
         self.handle = Some(thread::spawn(move || {
             while alive.load(Ordering::SeqCst) {
-                // let v = this.q.take();
+                // let v = self.q.take();
             }
         }));
     }
@@ -53,7 +47,7 @@ impl <Functor : FnOnce() + Send + Sync> HandlerThread<Functor> {
 
 impl <Functor : FnOnce()> Handler<Functor> for HandlerThread<Functor> {
     fn post(&mut self, func: Functor) {
-        self.q.put(func);
+        // self.q.put(func);
     }
 }
 
