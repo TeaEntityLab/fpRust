@@ -8,6 +8,8 @@ pub trait Handler<Functor> {
 }
 
 pub struct HandlerThread<Functor> {
+    this: Option<sync::Arc<HandlerThread<Functor>>>,
+
     alive: sync::Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
     q: fpSync::BlockingQueue<Functor>,
@@ -15,21 +17,27 @@ pub struct HandlerThread<Functor> {
 
 impl <Functor : FnOnce() + Send> HandlerThread<Functor> {
     pub fn new() -> HandlerThread<Functor> {
-        HandlerThread {
+        let mut newOne = HandlerThread {
+            this: None,
+
             handle: None,
             alive: sync::Arc::new(AtomicBool::new(false)),
             q: <fpSync::BlockingQueue<Functor>>::new(),
-        }
+        };
+
+        return newOne;
     }
 
-    pub fn start(&mut self) {
+    pub fn start(mut self) {
         self.alive.store(true, Ordering::SeqCst);
 
         let alive = self.alive.clone();
 
+        self.this = Some(sync::Arc::new(self));
+        // let this = self.this.unwrap().clone();
         self.handle = Some(thread::spawn(move || {
             while alive.load(Ordering::SeqCst) {
-                // let v = &self.q.take();
+                // let v = this.q.take();
             }
         }));
     }
