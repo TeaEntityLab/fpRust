@@ -14,7 +14,7 @@ pub struct HandlerThread<Functor> {
     q: Arc<fpSync::BlockingQueue<Functor>>,
 }
 
-impl <Functor : FnOnce() + Send + Sync> HandlerThread<Functor> {
+impl <Functor: 'static + FnOnce() + Send + Sync> HandlerThread<Functor> {
     pub fn new() -> HandlerThread<Functor> {
         let mut new_one = HandlerThread {
             handle: None,
@@ -30,9 +30,16 @@ impl <Functor : FnOnce() + Send + Sync> HandlerThread<Functor> {
 
         let alive = self.alive.clone();
 
+        let mut _me = Arc::new(self);
+
         self.handle = Some(thread::spawn(move || {
+            let me = &mut Arc::get_mut(&mut _me).unwrap();
+            let q = Arc::get_mut(&mut me.q).unwrap();
+
             while alive.load(Ordering::SeqCst) {
-                // let v = self.q.take();
+                let v = q.take();
+
+                v();
             }
         }));
     }
@@ -47,7 +54,11 @@ impl <Functor : FnOnce() + Send + Sync> HandlerThread<Functor> {
 
 impl <Functor : FnOnce()> Handler<Functor> for HandlerThread<Functor> {
     fn post(&mut self, func: Functor) {
-        // self.q.put(func);
+        let mut _me = Arc::new(self);
+        let me = &mut Arc::get_mut(&mut _me).unwrap();
+
+        let q = Arc::get_mut(&mut me.q).unwrap();
+        q.put(func);
     }
 }
 
