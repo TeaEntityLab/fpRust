@@ -1,25 +1,28 @@
+use std::rc::Rc;
+
 use std::{sync, thread, time};
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
+use common::RawFunc;
 use sync as fpSync;
 use sync::{Queue};
 
-pub trait Handler<Functor> {
-    fn post(&mut self, func : Functor);
+pub trait Handler {
+    fn post(&mut self, func : RawFunc);
 }
 
-pub struct HandlerThread<Functor> {
+pub struct HandlerThread {
     alive: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
-    q: Arc<fpSync::BlockingQueue<Functor>>,
+    q: Arc<fpSync::BlockingQueue<RawFunc>>,
 }
 
-impl <Functor: 'static + FnOnce() + Send + Sync> HandlerThread<Functor> {
-    pub fn new() -> HandlerThread<Functor> {
+impl HandlerThread {
+    pub fn new() -> HandlerThread {
         let mut new_one = HandlerThread {
             handle: None,
             alive: Arc::new(AtomicBool::new(false)),
-            q: Arc::new(<fpSync::BlockingQueue<Functor>>::new()),
+            q: Arc::new(<fpSync::BlockingQueue<RawFunc>>::new()),
         };
 
         return new_one;
@@ -39,7 +42,7 @@ impl <Functor: 'static + FnOnce() + Send + Sync> HandlerThread<Functor> {
             while alive.load(Ordering::SeqCst) {
                 let v = q.take();
 
-                v();
+                v.invoke();
             }
         }));
     }
@@ -52,8 +55,8 @@ impl <Functor: 'static + FnOnce() + Send + Sync> HandlerThread<Functor> {
     }
 }
 
-impl <Functor : FnOnce()> Handler<Functor> for HandlerThread<Functor> {
-    fn post(&mut self, func: Functor) {
+impl Handler for HandlerThread {
+    fn post(&mut self, func: RawFunc) {
         let mut _me = Arc::new(self);
         let me = &mut Arc::get_mut(&mut _me).unwrap();
 
@@ -65,5 +68,10 @@ impl <Functor : FnOnce()> Handler<Functor> for HandlerThread<Functor> {
 #[test]
 fn test_handler_new() {
 
-    // let h = HandlerThread::new();
+    // let mut h = &mut HandlerThread::new();
+    // let mut _h = Rc::new(h);
+    // (_h.clone()).start();
+    // _h.clone().post(RawFunc::new(move || {
+    //
+    //     }));
 }
