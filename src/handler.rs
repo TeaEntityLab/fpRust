@@ -11,16 +11,21 @@ pub trait Handler {
     fn post(&mut self, func : RawFunc);
 }
 
+#[derive(Clone)]
 pub struct HandlerThread {
+    // this: Option<Arc<HandlerThread>>,
+
     alive: Arc<AtomicBool>,
-    handle: Option<thread::JoinHandle<()>>,
+    handle: Arc<Option<thread::JoinHandle<()>>>,
     q: Arc<fpSync::BlockingQueue<RawFunc>>,
 }
 
 impl HandlerThread {
     pub fn new() -> HandlerThread {
         let mut new_one = HandlerThread {
-            handle: None,
+            // this: None,
+
+            handle: Arc::new(None),
             alive: Arc::new(AtomicBool::new(false)),
             q: Arc::new(<fpSync::BlockingQueue<RawFunc>>::new()),
         };
@@ -28,15 +33,26 @@ impl HandlerThread {
         return new_one;
     }
 
-    pub fn start(mut self) {
+    pub fn start(&'static mut self) {
         self.alive.store(true, Ordering::SeqCst);
-
         let alive = self.alive.clone();
 
-        let mut _me = Arc::new(self);
+        // let mut myself = Arc::new(self);
+        // let mut _me = myself.clone();
+        // let me = Arc::get_mut(&mut _me).unwrap();
+        // me.this = Some(myself.clone());
 
-        self.handle = Some(thread::spawn(move || {
-            let me = &mut Arc::get_mut(&mut _me).unwrap();
+        let mut myself = Arc::new(self);
+        let mut _me = myself.clone();
+        let me = Arc::get_mut(&mut _me).unwrap();
+
+        me.handle = Arc::new(Some(thread::spawn(move || {
+            let mut _me = myself.clone();
+            let me = Arc::get_mut(&mut _me).unwrap();
+            // let q = Arc::get_mut(&mut me.q).unwrap();
+
+            let mut _me = myself.clone();
+
             let q = Arc::get_mut(&mut me.q).unwrap();
 
             while alive.load(Ordering::SeqCst) {
@@ -44,12 +60,14 @@ impl HandlerThread {
 
                 v.invoke();
             }
-        }));
+        })));
     }
 
     pub fn stop(&mut self) {
         self.alive.store(false, Ordering::SeqCst);
-        self.handle
+        let mut _handle = Box::new(&mut self.handle);
+        let mut handle = Arc::get_mut(&mut _handle).unwrap();
+        handle
             .take().expect("Called stop on non-running thread")
             .join().expect("Could not join spawned thread");
     }
@@ -68,10 +86,11 @@ impl Handler for HandlerThread {
 #[test]
 fn test_handler_new() {
 
-    // let mut h = &mut HandlerThread::new();
-    // let mut _h = Rc::new(h);
-    // (_h.clone()).start();
-    // _h.clone().post(RawFunc::new(move || {
-    //
-    //     }));
+    let mut __h = HandlerThread::new();
+    let mut _h = Arc::new(__h);
+
+    // let mut h1 : &'static mut HandlerThread = &mut _h.clone();
+    // // Arc::get_mut(&mut h1).unwrap().start();
+    // let mut h2 : &'static mut HandlerThread = &mut _h.clone();
+    // Arc::get_mut(h2).unwrap().post(RawFunc::new(||{}));
 }

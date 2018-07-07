@@ -13,14 +13,21 @@ pub trait Queue<T> {
     fn take(&mut self) -> T;
 }
 
+#[derive(Debug, Clone)]
 pub struct BlockingQueue<T> {
     lock: Arc<Mutex<u16>>,
     condvar: Arc<Condvar>,
-    blockingSender: Mutex<mpsc::Sender<u16>>,
-    blockingRecever: Mutex<mpsc::Receiver<u16>>,
+    blockingSender: Arc<Mutex<mpsc::Sender<u16>>>,
+    blockingRecever: Arc<Mutex<mpsc::Receiver<u16>>>,
 
     queue: Vec<T>,
 }
+
+// impl <T> Copy for BlockingQueue<T> {
+//     fn clone(&self) -> BlockingQueue<T> {
+//         *self
+//     }
+// }
 
 impl <T> BlockingQueue<T> {
     pub fn new() -> BlockingQueue<T> {
@@ -29,8 +36,8 @@ impl <T> BlockingQueue<T> {
         return BlockingQueue {
             lock: Arc::new(Mutex::new(0_u16)),
             condvar: Arc::new(Condvar::new()),
-            blockingSender: Mutex::new(blockingSender),
-            blockingRecever: Mutex::new(blockingRecever),
+            blockingSender: Arc::new(Mutex::new(blockingSender)),
+            blockingRecever: Arc::new(Mutex::new(blockingRecever)),
 
             queue: vec!(),
         };
