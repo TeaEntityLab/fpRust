@@ -71,11 +71,20 @@ impl Handler for HandlerThread {
             alive.store(true, Ordering::SeqCst);
         }
 
-        let mut _inner = self.inner.clone();
         let mut _inner_for_thread = self.inner.clone();
         self.handle = Arc::new(Some(thread::spawn(move || {
-            let inner = Arc::get_mut(&mut _inner_for_thread).unwrap();
-            inner.start();
+            loop {
+                let inner = Arc::get_mut(&mut _inner_for_thread);
+                match inner {
+                    Some(_inner) => {
+                        _inner.start();
+                        break;
+                        },
+                    None => {
+                        continue;
+                        },
+                }
+            }
         })));
     }
 
