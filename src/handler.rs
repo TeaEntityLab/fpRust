@@ -287,6 +287,7 @@ fn test_handler_new() {
 
     let mut h1 = _h.clone();
 
+    /*
     h1.post(RawFunc::new(move ||{
         let &(ref lock, ref cvar) = &*pair2;
         let mut started = lock.lock().unwrap();
@@ -294,7 +295,6 @@ fn test_handler_new() {
 
         cvar.notify_one();
         }));
-    /*
 
     let &(ref lock, ref cvar) = &*pair;
     let mut started = lock.lock().unwrap();
