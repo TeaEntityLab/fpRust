@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use std::{sync, thread, time};
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 
 use common::RawFunc;
 use sync as fpSync;
@@ -19,6 +19,9 @@ pub trait Handler {
 
 #[derive(Clone)]
 pub struct HandlerThread {
+    started: Arc<Mutex<AtomicBool>>,
+    alive: Arc<Mutex<AtomicBool>>,
+
     inner: Arc<HandlerThreadInner>,
 
     handle: Arc<Option<thread::JoinHandle<()>>>,
@@ -27,6 +30,8 @@ pub struct HandlerThread {
 impl HandlerThread {
     pub fn new() -> HandlerThread {
         return HandlerThread {
+            started: Arc::new(Mutex::new(AtomicBool::new(false))),
+            alive: Arc::new(Mutex::new(AtomicBool::new(false))),
             inner: Arc::new(HandlerThreadInner::new()),
 
             handle: Arc::new(None),
@@ -37,27 +42,36 @@ impl HandlerThread {
 impl Handler for HandlerThread {
 
     fn is_started(&mut self) -> bool {
-        let mut _inner = self.inner.clone();
-        let inner = Arc::get_mut(&mut _inner).unwrap();
-
-        return inner.is_started();
+        let _started = self.started.clone();
+        let started = _started.lock().unwrap();
+        return started.load(Ordering::SeqCst);
     }
 
     fn is_alive(&mut self) -> bool {
-        let mut _inner = self.inner.clone();
-        let inner = Arc::get_mut(&mut _inner).unwrap();
-
-        return inner.is_alive();
+        let _alive = self.alive.clone();
+        let alive = _alive.lock().unwrap();
+        return alive.load(Ordering::SeqCst);
     }
 
     fn start(&mut self) {
 
-        let mut _inner = self.inner.clone();
-        let inner = Arc::get_mut(&mut _inner).unwrap();
-        if inner.is_started() {
-            return;
+        {
+            let _started = self.started.clone();
+            let started = _started.lock().unwrap();
+            if started.load(Ordering::SeqCst) {
+                return;
+            }
+            started.store(true, Ordering::SeqCst);
+
+            let _alive = self.alive.clone();
+            let alive = _alive.lock().unwrap();
+            if alive.load(Ordering::SeqCst) {
+                return;
+            }
+            alive.store(true, Ordering::SeqCst);
         }
 
+        let mut _inner = self.inner.clone();
         let mut _inner_for_thread = self.inner.clone();
         self.handle = Arc::new(Some(thread::spawn(move || {
             let inner = Arc::get_mut(&mut _inner_for_thread).unwrap();
@@ -66,6 +80,21 @@ impl Handler for HandlerThread {
     }
 
     fn stop(&mut self) {
+        {
+            let _started = self.started.clone();
+            let started = _started.lock().unwrap();
+            if !started.load(Ordering::SeqCst) {
+                return;
+            }
+
+            let _alive = self.alive.clone();
+            let alive = _alive.lock().unwrap();
+            if !alive.load(Ordering::SeqCst) {
+                return;
+            }
+            alive.store(false, Ordering::SeqCst);
+        }
+
         let mut _inner = self.inner.clone();
         let inner = Arc::get_mut(&mut _inner).unwrap();
         if !self.is_alive() {
@@ -163,6 +192,9 @@ fn test_handler_new() {
 
     let mut _h = Box::new(HandlerThread::new());
     let mut h1 = _h.clone();
+    h1.stop();
+    let mut h1 = _h.clone();
     h1.start();
-    // Arc::get_mut(h2).unwrap().post(RawFunc::new(||{}));
+    let mut h1 = _h.clone();
+    // h1.post(RawFunc::new(||{}));
 }
