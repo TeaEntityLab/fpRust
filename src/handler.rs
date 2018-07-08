@@ -215,8 +215,9 @@ impl Handler for HandlerThreadInner {
         // let me = Arc::get_mut(&mut _me).unwrap();
         // me.this = Some(myself.clone());
 
-        let myself = Box::new(self);
-        let mut me = myself.clone();
+        let myself = Arc::new(self);
+        let mut _me = myself.clone();
+        let mut me = Arc::get_mut(&mut _me).unwrap();
 
         /*
         let q = Arc::get_mut(&mut me.q).unwrap();
@@ -284,6 +285,7 @@ fn test_handler_new() {
     let pair2 = pair.clone();
 
     let mut h1 = _h.clone();
+
     /*
     h1.post(RawFunc::new(move ||{
         let &(ref lock, ref cvar) = &*pair2;
