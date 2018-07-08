@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use std::{sync, thread, time};
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
+use std::sync::{Arc, Mutex, Condvar, atomic::{AtomicBool, Ordering}};
 
 use common::RawFunc;
 use sync as fpSync;
@@ -71,20 +71,28 @@ impl Handler for HandlerThread {
             alive.store(true, Ordering::SeqCst);
         }
 
-        let mut _inner_for_thread = self.inner.clone();
+        let mut _inner = self.inner.clone();
+
         self.handle = Arc::new(Some(thread::spawn(move || {
+
+            let inner : &mut HandlerThreadInner;
+            let inner_temp = Arc::get_mut(&mut _inner);
             loop {
-                let inner = Arc::get_mut(&mut _inner_for_thread);
-                match inner {
-                    Some(_inner) => {
-                        _inner.start();
+                match inner_temp {
+                    Some(_x) => {
+                        inner = _x;
+                        // println!("True");
                         break;
                         },
                     None => {
+                        // println!("False");
                         continue;
-                        },
+                    }
                 }
             }
+
+            // println!("True");
+            inner.start();
         })));
     }
 
@@ -105,7 +113,23 @@ impl Handler for HandlerThread {
         }
 
         let mut _inner = self.inner.clone();
+        /*
         let inner = Arc::get_mut(&mut _inner).unwrap();
+        // */
+        let inner : &mut HandlerThreadInner;
+        let inner_temp = Arc::get_mut(&mut _inner);
+        loop {
+            match inner_temp {
+                Some(_x) => {
+                    inner = _x;
+                    break;
+                    },
+                None => {
+                    continue;
+                }
+            }
+        }
+
         if !self.is_alive() {
             return;
         }
@@ -120,7 +144,28 @@ impl Handler for HandlerThread {
 
     fn post(&mut self, func: RawFunc) {
         let mut _inner = self.inner.clone();
+
+        println!("{:?}", Arc::get_mut(&mut _inner).is_some());
+
+        /*
         let inner = Arc::get_mut(&mut _inner).unwrap();
+        // / */
+        let inner : &mut HandlerThreadInner;
+        let inner_temp = Arc::get_mut(&mut _inner);
+        loop {
+            match inner_temp {
+                Some(_x) => {
+                    inner = _x;
+                    println!("True");
+                    break;
+                    },
+                None => {
+                    // println!("False");
+                    continue;
+                }
+            }
+        }
+        // */
 
         inner.post(func);
     }
@@ -170,11 +215,25 @@ impl Handler for HandlerThreadInner {
         // let me = Arc::get_mut(&mut _me).unwrap();
         // me.this = Some(myself.clone());
 
-        let myself = Arc::new(self);
-        let mut _me = myself.clone();
-        let me = Arc::get_mut(&mut _me).unwrap();
+        let myself = Box::new(self);
+        let mut me = myself.clone();
 
+        /*
         let q = Arc::get_mut(&mut me.q).unwrap();
+        // */
+        let _q = Arc::get_mut(&mut me.q);
+        let q : &mut fpSync::BlockingQueue<RawFunc>;
+        loop {
+            match _q {
+                Some(_x) => {
+                    q = _x;
+                    break;
+                    },
+                None => {
+                    continue;
+                }
+            }
+        }
 
         while alive.load(Ordering::SeqCst) {
             let v = q.take();
@@ -188,10 +247,26 @@ impl Handler for HandlerThreadInner {
     }
 
     fn post(&mut self, func: RawFunc) {
-        let mut _me = Arc::new(self);
-        let me = &mut Arc::get_mut(&mut _me).unwrap();
+        let myself = Box::new(self);
+        let mut me = myself.clone();
 
+        /*
         let q = Arc::get_mut(&mut me.q).unwrap();
+        // */
+        let _q = Arc::get_mut(&mut me.q);
+        let q : &mut fpSync::BlockingQueue<RawFunc>;
+        loop {
+            match _q {
+                Some(_x) => {
+                    q = _x;
+                    break;
+                    },
+                None => {
+                    continue;
+                }
+            }
+        }
+
         q.put(func);
     }
 }
@@ -204,6 +279,24 @@ fn test_handler_new() {
     h1.stop();
     let mut h1 = _h.clone();
     h1.start();
+
+    let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    let pair2 = pair.clone();
+
     let mut h1 = _h.clone();
-    // h1.post(RawFunc::new(||{}));
+    /*
+    h1.post(RawFunc::new(move ||{
+        let &(ref lock, ref cvar) = &*pair2;
+        let mut started = lock.lock().unwrap();
+        *started = true;
+
+        cvar.notify_one();
+        }));
+
+    let &(ref lock, ref cvar) = &*pair;
+    let mut started = lock.lock().unwrap();
+    while !*started {
+        started = cvar.wait(started).unwrap();
+    }
+    // */
 }
