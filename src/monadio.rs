@@ -30,6 +30,9 @@ impl <Y, EFFECT : FnOnce()->Y> MonadIO<Y, EFFECT> {
 
 #[test]
 fn test_monadio_new() {
+    use std::sync::Arc;
+    use common::SubscriptionFunc;
+
     let f1 = MonadIO::new(|| 3);
     assert_eq!(3, (f1.effect)());
     let f2 = f1.fmap(|x| x*3);
@@ -38,18 +41,10 @@ fn test_monadio_new() {
     f2.subscribe_fn(|x| v = x);
     assert_eq!(9, v);
 
-    struct S1 {
-        pub result : i16,
-    };
-    impl Subscription<i16> for S1 {
-        fn on_next(&mut self, x : i16) {
-            self.result = x
-        }
-    }
-    let mut s = S1{
-        result : 0,
-    };
+    let mut s = SubscriptionFunc::new(move |x: &mut Option<u16>| {
+        println!("I'm here {:?}", x);
+    });
     let f3 = MonadIO::new(|| 3).fmap(|x| x*3).fmap(|x| x*3);
     f3.subscribe(&mut s);
-    assert_eq!(27, s.result);
+    assert_eq!(27, Arc::try_unwrap(s.result).ok().unwrap().unwrap());
 }
