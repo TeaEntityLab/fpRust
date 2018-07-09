@@ -75,6 +75,7 @@ impl Handler for HandlerThread {
 
         self.handle = Arc::new(Some(thread::spawn(move || {
 
+            /*
             let inner : &mut HandlerThreadInner;
             let inner_temp = Arc::get_mut(&mut _inner);
             loop {
@@ -85,14 +86,16 @@ impl Handler for HandlerThread {
                         break;
                         },
                     None => {
-                        // println!("False");
+                        println!("False");
                         continue;
                     }
                 }
             }
+            */
+            Arc::get_mut(&mut _inner).unwrap().start();
 
-            // println!("True");
-            inner.start();
+            println!("True");
+            // inner.start();
         })));
     }
 
@@ -113,9 +116,6 @@ impl Handler for HandlerThread {
         }
 
         let mut _inner = self.inner.clone();
-        /*
-        let inner = Arc::get_mut(&mut _inner).unwrap();
-        // */
         let inner : &mut HandlerThreadInner;
         let inner_temp = Arc::get_mut(&mut _inner);
         loop {
@@ -143,31 +143,7 @@ impl Handler for HandlerThread {
     }
 
     fn post(&mut self, func: RawFunc) {
-        let mut _inner = self.inner.clone();
-
-        println!("{:?}", Arc::get_mut(&mut _inner).is_some());
-
-        /*
-        let inner = Arc::get_mut(&mut _inner).unwrap();
-        // / */
-        let inner : &mut HandlerThreadInner;
-        let inner_temp = Arc::get_mut(&mut _inner);
-        loop {
-            match inner_temp {
-                Some(_x) => {
-                    inner = _x;
-                    println!("True");
-                    break;
-                    },
-                None => {
-                    // println!("False");
-                    continue;
-                }
-            }
-        }
-        // */
-
-        inner.post(func);
+        Arc::get_mut(&mut self.inner).unwrap().post(func);
     }
 }
 
@@ -210,18 +186,10 @@ impl Handler for HandlerThreadInner {
         }
         self.started.store(true, Ordering::SeqCst);
 
-        // let mut myself = Arc::new(self);
-        // let mut _me = myself.clone();
-        // let me = Arc::get_mut(&mut _me).unwrap();
-        // me.this = Some(myself.clone());
-
         let myself = Arc::new(self);
         let mut _me = myself.clone();
         let mut me = Arc::get_mut(&mut _me).unwrap();
 
-        /*
-        let q = Arc::get_mut(&mut me.q).unwrap();
-        // */
         let _q = Arc::get_mut(&mut me.q);
         let q : &mut fpSync::BlockingQueue<RawFunc>;
         loop {
@@ -248,14 +216,7 @@ impl Handler for HandlerThreadInner {
     }
 
     fn post(&mut self, func: RawFunc) {
-        let myself = Arc::new(self);
-        let mut _me = myself.clone();
-        let mut me = Arc::get_mut(&mut _me).unwrap();
-
-        /*
-        let q = Arc::get_mut(&mut me.q).unwrap();
-        // */
-        let _q = Arc::get_mut(&mut me.q);
+        let _q = Arc::get_mut(&mut self.q);
         let q : &mut fpSync::BlockingQueue<RawFunc>;
         loop {
             match _q {
@@ -276,18 +237,18 @@ impl Handler for HandlerThreadInner {
 #[test]
 fn test_handler_new() {
 
-    let mut _h = Box::new(HandlerThread::new());
-    let mut h1 = _h.clone();
-    h1.stop();
-    let mut h1 = _h.clone();
-    h1.start();
+    let mut _h = Rc::new(HandlerThread::new());
+    // let mut h1 = _h.clone();
+    // h1.stop();
+    // let mut h1 = _h.clone();
+    // h1.start();
 
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair2 = pair.clone();
 
-    let mut h1 = _h.clone();
+    let mut h1 = Rc::get_mut(&mut _h).unwrap();
 
-    /*
+    // /*
     h1.post(RawFunc::new(move ||{
         let &(ref lock, ref cvar) = &*pair2;
         let mut started = lock.lock().unwrap();
@@ -295,6 +256,7 @@ fn test_handler_new() {
 
         cvar.notify_one();
         }));
+    /*
 
     let &(ref lock, ref cvar) = &*pair;
     let mut started = lock.lock().unwrap();
