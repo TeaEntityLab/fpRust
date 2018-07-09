@@ -92,7 +92,7 @@ impl Handler for HandlerThread {
                 }
             }
             */
-            Arc::get_mut(&mut _inner).unwrap().start();
+            Arc::make_mut(&mut _inner).start();
 
             println!("True");
             // inner.start();
@@ -115,25 +115,10 @@ impl Handler for HandlerThread {
             alive.store(false, Ordering::SeqCst);
         }
 
-        let mut _inner = self.inner.clone();
-        let inner : &mut HandlerThreadInner;
-        let inner_temp = Arc::get_mut(&mut _inner);
-        loop {
-            match inner_temp {
-                Some(_x) => {
-                    inner = _x;
-                    break;
-                    },
-                None => {
-                    continue;
-                }
-            }
-        }
-
         if !self.is_alive() {
             return;
         }
-        inner.stop();
+        Arc::make_mut(&mut self.inner).stop();
 
         let mut _handle = Box::new(&mut self.handle);
         let handle = Arc::get_mut(&mut _handle).unwrap();
@@ -143,7 +128,7 @@ impl Handler for HandlerThread {
     }
 
     fn post(&mut self, func: RawFunc) {
-        Arc::get_mut(&mut self.inner).unwrap().post(func);
+        Arc::make_mut(&mut self.inner).post(func);
     }
 }
 
@@ -186,23 +171,7 @@ impl Handler for HandlerThreadInner {
         }
         self.started.store(true, Ordering::SeqCst);
 
-        let myself = Arc::new(self);
-        let mut _me = myself.clone();
-        let mut me = Arc::get_mut(&mut _me).unwrap();
-
-        let _q = Arc::get_mut(&mut me.q);
-        let q : &mut fpSync::BlockingQueue<RawFunc>;
-        loop {
-            match _q {
-                Some(_x) => {
-                    q = _x;
-                    break;
-                    },
-                None => {
-                    continue;
-                }
-            }
-        }
+        let q = Arc::make_mut(&mut self.q);
 
         while alive.load(Ordering::SeqCst) {
             let v = q.take();
@@ -216,19 +185,7 @@ impl Handler for HandlerThreadInner {
     }
 
     fn post(&mut self, func: RawFunc) {
-        let _q = Arc::get_mut(&mut self.q);
-        let q : &mut fpSync::BlockingQueue<RawFunc>;
-        loop {
-            match _q {
-                Some(_x) => {
-                    q = _x;
-                    break;
-                    },
-                None => {
-                    continue;
-                }
-            }
-        }
+        let q = Arc::make_mut(&mut self.q);
 
         q.put(func);
     }
@@ -238,26 +195,27 @@ impl Handler for HandlerThreadInner {
 fn test_handler_new() {
 
     let mut _h = HandlerThread::new();
-    Arc::get_mut(&mut _h).unwrap().stop();
+    Arc::make_mut(&mut _h).stop();
     // let mut h1 = _h.clone();
-    // Arc::get_mut(&mut h1).unwrap().start();
+    Arc::make_mut(&mut _h).start();
 
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair2 = pair.clone();
 
     // /*
-    Arc::get_mut(&mut _h).unwrap().post(RawFunc::new(move ||{
+    Arc::make_mut(&mut _h).post(RawFunc::new(move ||{
+        println!("In !");
         let &(ref lock, ref cvar) = &*pair2;
         let mut started = lock.lock().unwrap();
         *started = true;
 
         cvar.notify_one();
         }));
+    println!("Test");
 
-    Arc::get_mut(&mut _h).unwrap().stop();
+    thread::sleep(time::Duration::from_millis(1000));
 
-    // let mut h1 = _h.clone();
-    // Arc::get_mut(&mut h1).unwrap().start();
+    Arc::make_mut(&mut _h).stop();
 
     /*
 

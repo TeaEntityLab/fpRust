@@ -1,10 +1,13 @@
 
+use std::sync::{Arc};
+
 pub trait Subscription<X> {
     fn on_next(&mut self, x : X);
 }
 
+#[derive(Clone)]
 pub struct RawFunc {
-    data: Box<Fn() + Send + Sync + 'static>,
+    data: Arc<Fn() + Send + Sync + 'static>,
 }
 
 impl RawFunc {
@@ -13,7 +16,7 @@ impl RawFunc {
         T: Fn() + Send + Sync + 'static,
     {
         return RawFunc {
-            data: Box::new(data),
+            data: Arc::new(data),
         };
     }
 
