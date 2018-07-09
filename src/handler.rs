@@ -28,14 +28,14 @@ pub struct HandlerThread {
 }
 
 impl HandlerThread {
-    pub fn new() -> HandlerThread {
-        return HandlerThread {
+    pub fn new() -> Arc<HandlerThread> {
+        return Arc::new(HandlerThread {
             started: Arc::new(Mutex::new(AtomicBool::new(false))),
             alive: Arc::new(Mutex::new(AtomicBool::new(false))),
             inner: Arc::new(HandlerThreadInner::new()),
 
             handle: Arc::new(None),
-        };
+        });
     }
 }
 
@@ -237,25 +237,28 @@ impl Handler for HandlerThreadInner {
 #[test]
 fn test_handler_new() {
 
-    let mut _h = Rc::new(HandlerThread::new());
+    let mut _h = HandlerThread::new();
+    Arc::get_mut(&mut _h).unwrap().stop();
     // let mut h1 = _h.clone();
-    // h1.stop();
-    // let mut h1 = _h.clone();
-    // h1.start();
+    // Arc::get_mut(&mut h1).unwrap().start();
 
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair2 = pair.clone();
 
-    let mut h1 = Rc::get_mut(&mut _h).unwrap();
-
     // /*
-    h1.post(RawFunc::new(move ||{
+    Arc::get_mut(&mut _h).unwrap().post(RawFunc::new(move ||{
         let &(ref lock, ref cvar) = &*pair2;
         let mut started = lock.lock().unwrap();
         *started = true;
 
         cvar.notify_one();
         }));
+
+    Arc::get_mut(&mut _h).unwrap().stop();
+
+    // let mut h1 = _h.clone();
+    // Arc::get_mut(&mut h1).unwrap().start();
+
     /*
 
     let &(ref lock, ref cvar) = &*pair;
