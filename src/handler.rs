@@ -34,7 +34,7 @@ pub struct HandlerThread {
 
     inner: Arc<HandlerThreadInner>,
 
-    handle: Arc<Option<thread::JoinHandle<()>>>,
+    handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
 }
 
 impl HandlerThread {
@@ -44,7 +44,7 @@ impl HandlerThread {
             alive: Arc::new(Mutex::new(AtomicBool::new(false))),
             inner: Arc::new(HandlerThreadInner::new()),
 
-            handle: Arc::new(None),
+            handle: Arc::new(Mutex::new(None)),
         });
     }
 }
@@ -83,7 +83,7 @@ impl Handler for HandlerThread {
 
         let mut _inner = self.inner.clone();
 
-        self.handle = Arc::new(Some(thread::spawn(move || {
+        self.handle = Arc::new(Mutex::new(Some(thread::spawn(move || {
 
             /*
             let inner : &mut HandlerThreadInner;
@@ -103,7 +103,7 @@ impl Handler for HandlerThread {
             }
             */
             Arc::make_mut(&mut _inner).start();
-        })));
+        }))));
     }
 
     fn stop(&mut self) {
@@ -127,11 +127,22 @@ impl Handler for HandlerThread {
         }
         Arc::make_mut(&mut self.inner).stop();
 
-        let mut _handle = Box::new(&mut self.handle);
-        let handle = Arc::get_mut(&mut _handle).unwrap();
-        handle
-            .take().expect("Called stop on non-running thread")
-            .join().expect("Could not join spawned thread");
+        let mut _handle = &mut self.handle;
+        let option = Arc::get_mut(_handle);
+        loop {
+            match option {
+                Some(m) => {
+                    let mut handle = m.lock().unwrap();
+                    handle
+                        .take().expect("Called stop on non-running thread")
+                        .join().expect("Could not join spawned thread");
+                    break;
+                },
+                None => {
+                    continue;
+                }
+            }
+        }
     }
 
     fn post(&mut self, func: RawFunc) {
@@ -211,6 +222,7 @@ fn test_handler_new() {
     let mut _h = HandlerThread::new();
     println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
     println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
+    Arc::make_mut(&mut _h).stop();
     Arc::make_mut(&mut _h).stop();
     println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
     println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
