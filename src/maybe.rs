@@ -1,4 +1,3 @@
-use std::panic;
 
 pub struct Maybe<T> {
     r : Option<T>
@@ -95,7 +94,7 @@ fn test_maybe_flatmap() {
 
     assert_eq!(true, Maybe::val(1).ap(
         Maybe::val(|x: Option<i16>| {
-            if (x.unwrap() > 0) {
+            if x.unwrap() > 0 {
                 return Some(true)
             } else {
                 return Some(false)
@@ -108,14 +107,13 @@ fn test_maybe_unwrap() {
 
     assert_eq!(false, Maybe::just(None::<bool>).or(false));
     assert_eq!(true, Maybe::val(true).or(false));
+    use std::panic;
 
-    /*
     let none_unwrap = panic::catch_unwind(|| {
         Maybe::just(None::<bool>).unwrap();
     });
     assert_eq!(true, none_unwrap.is_err());
     assert_eq!(true, Maybe::val(true).unwrap());
-    */
 
     assert_eq!(true, match Maybe::val(true).option() {
         None => false,

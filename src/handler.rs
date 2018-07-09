@@ -1,11 +1,21 @@
-use std::rc::Rc;
 
-use std::{sync, thread, time};
-use std::sync::{Arc, Mutex, Condvar, atomic::{AtomicBool, Ordering}};
+use std::{
+    thread,
+};
+use std::sync::{
+    Arc,
+    Mutex,
+    atomic::{
+        AtomicBool,
+        Ordering,
+    },
+};
 
 use common::RawFunc;
 use sync as fpSync;
-use sync::{Queue};
+use sync::{
+    Queue,
+};
 
 pub trait Handler {
     fn is_started(&mut self) -> bool;
@@ -93,9 +103,6 @@ impl Handler for HandlerThread {
             }
             */
             Arc::make_mut(&mut _inner).start();
-
-            println!("True");
-            // inner.start();
         })));
     }
 
@@ -194,6 +201,13 @@ impl Handler for HandlerThreadInner {
 #[test]
 fn test_handler_new() {
 
+    use std::{
+        sync::{
+            Condvar,
+        },
+        time,
+    };
+
     let mut _h = HandlerThread::new();
     println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
     println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
@@ -219,7 +233,7 @@ fn test_handler_new() {
         }));
     println!("Test");
 
-    thread::sleep(time::Duration::from_millis(1000));
+    thread::sleep(time::Duration::from_millis(100));
 
     println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
     println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
@@ -229,7 +243,7 @@ fn test_handler_new() {
     println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
     println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
 
-    /*
+    // /*
 
     let &(ref lock, ref cvar) = &*pair;
     let mut started = lock.lock().unwrap();

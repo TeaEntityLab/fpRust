@@ -1,26 +1,21 @@
 use std::sync::{
     Arc,
     Mutex,
-    Condvar,
 
     mpsc,
 };
 
 pub trait Queue<T> {
-    fn offer(&mut self, mut v : T);
+    fn offer(&mut self, v : T);
     fn poll(&mut self) -> Option<T>;
-    fn put(&mut self, mut v : T);
+    fn put(&mut self, v : T);
     fn take(&mut self) -> T;
 }
 
 #[derive(Debug, Clone)]
 pub struct BlockingQueue<T> {
-    lock: Arc<Mutex<u16>>,
-    condvar: Arc<Condvar>,
-    blockingSender: Arc<Mutex<mpsc::Sender<u16>>>,
-    blockingRecever: Arc<Mutex<mpsc::Receiver<u16>>>,
-
-    queue: Vec<T>,
+    blocking_sender: Arc<Mutex<mpsc::Sender<T>>>,
+    blocking_recever: Arc<Mutex<mpsc::Receiver<T>>>,
 }
 
 // impl <T> Copy for BlockingQueue<T> {
@@ -31,44 +26,34 @@ pub struct BlockingQueue<T> {
 
 impl <T> BlockingQueue<T> {
     pub fn new() -> BlockingQueue<T> {
-        let (blockingSender,blockingRecever) = mpsc::channel();
+        let (blocking_sender,blocking_recever) = mpsc::channel();
 
         return BlockingQueue {
-            lock: Arc::new(Mutex::new(0_u16)),
-            condvar: Arc::new(Condvar::new()),
-            blockingSender: Arc::new(Mutex::new(blockingSender)),
-            blockingRecever: Arc::new(Mutex::new(blockingRecever)),
-
-            queue: vec!(),
+            blocking_sender: Arc::new(Mutex::new(blocking_sender)),
+            blocking_recever: Arc::new(Mutex::new(blocking_recever)),
         };
     }
 }
 
 impl <T> Queue<T> for BlockingQueue<T> {
-    fn offer(&mut self, mut v : T) {
+    fn offer(&mut self, v : T) {
         {
-            let lock = self.lock.lock().unwrap();
-
-            self.queue.push(v);
-            {
-                self.blockingSender.lock().unwrap().send(0);
-            }
+            let _result = self.blocking_sender.lock().unwrap().send(v);
         }
     }
 
     fn poll(&mut self) -> Option<T> {
-        let mut v : Option<T>;
+        let v : Option<T>;
 
         {
-            let lock = self.lock.lock().unwrap();
-
-            v = self.queue.pop();
+            let result = self.blocking_recever.lock().unwrap().recv();
+            v = result.ok();
         }
 
         return v;
     }
 
-    fn put(&mut self, mut v : T) {
+    fn put(&mut self, v : T) {
         // NOTE Currently there's no maximum size of BlockingQueue.
 
         self.offer(v);
@@ -79,10 +64,6 @@ impl <T> Queue<T> for BlockingQueue<T> {
             match self.poll() {
                 Some(_x) => return _x,
                 None => (),
-            }
-
-            {
-                let okNext = self.blockingRecever.lock().unwrap().recv();
             }
         }
     }

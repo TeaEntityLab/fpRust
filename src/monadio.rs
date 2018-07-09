@@ -1,7 +1,4 @@
 
-// use std::panic;
-// use std::rc::Rc;
-
 use common::Subscription;
 
 pub struct MonadIO<Y, EFFECT : FnOnce()->Y> {
@@ -41,7 +38,6 @@ fn test_monadio_new() {
     f2.subscribe_fn(|x| v = x);
     assert_eq!(9, v);
 
-    v = 0;
     struct S1 {
         pub result : i16,
     };
