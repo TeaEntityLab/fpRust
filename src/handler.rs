@@ -195,16 +195,22 @@ impl Handler for HandlerThreadInner {
 fn test_handler_new() {
 
     let mut _h = HandlerThread::new();
+    println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
+    println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
     Arc::make_mut(&mut _h).stop();
+    println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
+    println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
     // let mut h1 = _h.clone();
     Arc::make_mut(&mut _h).start();
+    println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
+    println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
 
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair2 = pair.clone();
 
     // /*
     Arc::make_mut(&mut _h).post(RawFunc::new(move ||{
-        println!("In !");
+        println!("Executed !");
         let &(ref lock, ref cvar) = &*pair2;
         let mut started = lock.lock().unwrap();
         *started = true;
@@ -215,7 +221,13 @@ fn test_handler_new() {
 
     thread::sleep(time::Duration::from_millis(1000));
 
+    println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
+    println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
+
     Arc::make_mut(&mut _h).stop();
+
+    println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
+    println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
 
     /*
 
