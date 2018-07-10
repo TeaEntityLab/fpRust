@@ -17,7 +17,7 @@ use sync::{
     Queue,
 };
 
-pub trait Handler {
+pub trait Handler : Send + Sync + 'static {
     fn is_started(&mut self) -> bool;
     fn is_alive(&mut self) -> bool;
 
