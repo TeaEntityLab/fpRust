@@ -1,8 +1,17 @@
+use std::sync::{
+    Arc,
+};
+
+use handler::{
+    Handler,
+};
 
 use common::Subscription;
 
 pub struct MonadIO<Y, EFFECT : FnOnce()->Y> {
     effect : EFFECT,
+    obHandler : Option<Arc<Handler>>,
+    subHandler : Option<Arc<Handler>>,
 }
 
 impl <Y, EFFECT : FnOnce()->Y> MonadIO<Y, EFFECT> {
@@ -14,6 +23,16 @@ impl <Y, EFFECT : FnOnce()->Y> MonadIO<Y, EFFECT> {
     pub fn new(effect : EFFECT) -> MonadIO<Y, EFFECT> {
         return MonadIO {
             effect,
+            obHandler: None,
+            subHandler: None,
+        }
+    }
+
+    pub fn new_with_handlers(effect : EFFECT, ob : Arc<impl Handler + 'static>,  sub : Arc<impl Handler + 'static>) -> MonadIO<Y, EFFECT> {
+        return MonadIO {
+            effect,
+            obHandler: Some(ob),
+            subHandler: Some(sub),
         }
     }
 
@@ -30,7 +49,14 @@ impl <Y, EFFECT : FnOnce()->Y> MonadIO<Y, EFFECT> {
 
 #[test]
 fn test_monadio_new() {
-    use std::sync::Arc;
+    use std::sync::{
+        Arc,
+        Mutex,
+        Condvar,
+    };
+    use handler::{
+        HandlerThread,
+    };
     use common::SubscriptionFunc;
 
     let f1 = MonadIO::new(|| 3);
@@ -47,4 +73,17 @@ fn test_monadio_new() {
     let f3 = MonadIO::new(|| 3).fmap(|x| x*3).fmap(|x| x*3);
     f3.subscribe(&mut s);
     assert_eq!(27, Arc::try_unwrap(s.result).ok().unwrap().unwrap());
+
+    let mut _h = HandlerThread::new();
+    let mut _h2 = HandlerThread::new();
+    let f4 = MonadIO::new_with_handlers(|| "ok", _h.clone(), _h2.clone());
+
+    let h = Arc::make_mut(&mut _h);
+    h.start();
+    let h2 = Arc::make_mut(&mut _h2);
+    h2.start();
+
+    let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    let pair2 = pair.clone();
+
 }

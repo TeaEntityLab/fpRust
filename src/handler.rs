@@ -29,8 +29,7 @@ pub trait Handler {
 
 #[derive(Clone)]
 pub struct HandlerThread {
-    started: Arc<Mutex<AtomicBool>>,
-    alive: Arc<Mutex<AtomicBool>>,
+    started_alive: Arc<Mutex<(AtomicBool, AtomicBool)>>,
 
     inner: Arc<HandlerThreadInner>,
 
@@ -40,8 +39,7 @@ pub struct HandlerThread {
 impl HandlerThread {
     pub fn new() -> Arc<HandlerThread> {
         return Arc::new(HandlerThread {
-            started: Arc::new(Mutex::new(AtomicBool::new(false))),
-            alive: Arc::new(Mutex::new(AtomicBool::new(false))),
+            started_alive: Arc::new(Mutex::new((AtomicBool::new(false), AtomicBool::new(false)))),
             inner: Arc::new(HandlerThreadInner::new()),
 
             handle: Arc::new(Mutex::new(None)),
@@ -52,29 +50,30 @@ impl HandlerThread {
 impl Handler for HandlerThread {
 
     fn is_started(&mut self) -> bool {
-        let _started = self.started.clone();
-        let started = _started.lock().unwrap();
+        let _started_alive = self.started_alive.clone();
+        let started_alive = _started_alive.lock().unwrap();
+        let &(ref started, _) = &*started_alive;
         return started.load(Ordering::SeqCst);
     }
 
     fn is_alive(&mut self) -> bool {
-        let _alive = self.alive.clone();
-        let alive = _alive.lock().unwrap();
+        let _started_alive = self.started_alive.clone();
+        let started_alive = _started_alive.lock().unwrap();
+        let &(_, ref alive) = &*started_alive;
         return alive.load(Ordering::SeqCst);
     }
 
     fn start(&mut self) {
 
         {
-            let _started = self.started.clone();
-            let started = _started.lock().unwrap();
+            let _started_alive = self.started_alive.clone();
+            let started_alive = _started_alive.lock().unwrap();
+            let &(ref started, ref alive) = &*started_alive;
+
             if started.load(Ordering::SeqCst) {
                 return;
             }
             started.store(true, Ordering::SeqCst);
-
-            let _alive = self.alive.clone();
-            let alive = _alive.lock().unwrap();
             if alive.load(Ordering::SeqCst) {
                 return;
             }
@@ -108,14 +107,13 @@ impl Handler for HandlerThread {
 
     fn stop(&mut self) {
         {
-            let _started = self.started.clone();
-            let started = _started.lock().unwrap();
+            let _started_alive = self.started_alive.clone();
+            let started_alive = _started_alive.lock().unwrap();
+            let &(ref started, ref alive) = &*started_alive;
+
             if !started.load(Ordering::SeqCst) {
                 return;
             }
-
-            let _alive = self.alive.clone();
-            let alive = _alive.lock().unwrap();
             if !alive.load(Ordering::SeqCst) {
                 return;
             }
@@ -220,40 +218,57 @@ fn test_handler_new() {
     };
 
     let mut _h = HandlerThread::new();
-    println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
-    println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
-    Arc::make_mut(&mut _h).stop();
-    Arc::make_mut(&mut _h).stop();
-    println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
-    println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
+    let h = Arc::make_mut(&mut _h);
+
+    println!("is_alive {:?}", h.is_alive());
+    println!("is_started {:?}", h.is_started());
+
+    h.stop();
+    h.stop();
+    println!("is_alive {:?}", h.is_alive());
+    println!("is_started {:?}", h.is_started());
     // let mut h1 = _h.clone();
-    Arc::make_mut(&mut _h).start();
-    println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
-    println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
+    h.start();
+    println!("is_alive {:?}", h.is_alive());
+    println!("is_started {:?}", h.is_started());
 
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair2 = pair.clone();
 
     // /*
-    Arc::make_mut(&mut _h).post(RawFunc::new(move ||{
+    h.post(RawFunc::new(move ||{
         println!("Executed !");
-        let &(ref lock, ref cvar) = &*pair2;
-        let mut started = lock.lock().unwrap();
-        *started = true;
 
-        cvar.notify_one();
+        let pair3 = pair2.clone();
+
+        let mut _h2 = HandlerThread::new();
+        let mut _h2_inside = _h2.clone();
+
+        let h2 = Arc::make_mut(&mut _h2);
+        h2.start();
+
+        h2.post(RawFunc::new(move ||{
+            let &(ref lock, ref cvar) = &*pair3;
+            let mut started = lock.lock().unwrap();
+            *started = true;
+
+            cvar.notify_one();
+
+            Arc::make_mut(&mut _h2_inside).stop();
+        }));
+
         }));
     println!("Test");
 
     thread::sleep(time::Duration::from_millis(100));
 
-    println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
-    println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
+    println!("is_alive {:?}", h.is_alive());
+    println!("is_started {:?}", h.is_started());
 
-    Arc::make_mut(&mut _h).stop();
+    h.stop();
 
-    println!("is_alive {:?}", Arc::make_mut(&mut _h).is_alive());
-    println!("is_started {:?}", Arc::make_mut(&mut _h).is_started());
+    println!("is_alive {:?}", h.is_alive());
+    println!("is_started {:?}", h.is_started());
 
     // /*
 
