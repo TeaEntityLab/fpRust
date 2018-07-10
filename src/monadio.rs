@@ -46,14 +46,22 @@ impl <Y: 'static + Send + Sync + Clone, EFFECT : FnMut()->Y + Send + Sync + 'sta
         };
     }
 
-    pub fn fmap<Z: 'static + Send + Sync + Clone, F : FnMut(Y)->Z + Send + Sync + 'static + Clone>(self, func : F) -> MonadIO<Z, impl FnMut()->Z + Send + Sync + 'static + Clone> {
+    pub fn map<Z: 'static + Send + Sync + Clone, F : FnMut(Y)->Z + Send + Sync + 'static + Clone>(self, func : F) -> MonadIO<Z, impl FnMut()->Z + Send + Sync + 'static + Clone> {
         let _effect = Arc::new(self.effect);
         let _func = Arc::new(func);
 
-        return MonadIO::new(move || {
+        return MonadIO::new_with_handlers(move || {
             let mut effect = _effect.clone();
             let mut func = _func.clone();
             (Arc::make_mut(&mut func))( (Arc::make_mut(&mut effect))() )}
+        , self.ob_handler, self.sub_handler);
+    }
+    pub fn fmap<Z: 'static + Send + Sync + Clone, Fi1 : FnMut()->Z + Send + Sync + 'static + Clone, F : FnMut(Y)->MonadIO<Z, Fi1> + Send + Sync + 'static + Clone>(self, func : F) -> MonadIO<Z, impl FnMut()->Z + Send + Sync + 'static + Clone> {
+        let _func = Arc::new(func);
+
+        return self.map(move |y : Y| {
+            let mut func = _func.clone();
+            ((Arc::make_mut(&mut func))( y ).effect)()}
         );
     }
     pub fn subscribe(self, s : Arc<impl Subscription<Y> + Clone>) {
@@ -127,7 +135,7 @@ fn test_monadio_new() {
 
     let mut f1 = MonadIO::new(|| 3);
     assert_eq!(3, (f1.effect)());
-    let f2 = f1.fmap(|x| x*3);
+    let f2 = f1.map(|x| x*3);
 
     f2.subscribe_fn(move |x| {
         println!("f2 {:?}", x);
@@ -136,9 +144,10 @@ fn test_monadio_new() {
 
     let mut _s = Arc::new(SubscriptionFunc::new(move |x: &mut Option<u16>| {
         println!("I'm here {:?}", x);
+        assert_eq!(36, x.unwrap());
     }));
     let mut _s2 = _s.clone();
-    let f3 = MonadIO::new(|| 3).fmap(|x| x*3).fmap(|x| x*3);
+    let f3 = MonadIO::new(|| 1).fmap(|x| MonadIO::new(move || x*4)).map(|x| x*3).map(|x| x*3);
     f3.subscribe(_s2);
 
     let mut _h = HandlerThread::new();
