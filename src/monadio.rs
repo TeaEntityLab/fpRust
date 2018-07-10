@@ -74,15 +74,21 @@ impl <Y: 'static + Send + Sync + Clone, EFFECT : FnMut()->Y + Send + Sync + 'sta
 
                 let mut sub_handler_thread = Arc::new(self.sub_handler);
                 Arc::get_mut(&mut ob_handler).unwrap().post(RawFunc::new(move ||{
-                        let mut do_ob_thread = _do_ob.clone();
-                        let mut do_sub_thread = _do_sub.clone();
-                        let ob = Arc::make_mut(&mut do_ob_thread);
-                        let sub = Arc::make_mut(&mut do_sub_thread);
+                        let mut do_ob_thread_ob = _do_ob.clone();
+                        let mut do_sub_thread_ob = _do_sub.clone();
+                        let ob = Arc::make_mut(&mut do_ob_thread_ob);
+                        let sub = Arc::make_mut(&mut do_sub_thread_ob);
 
                         match Arc::make_mut(&mut sub_handler_thread) {
                             Some(ref mut sub_handler) => {
-                                Arc::get_mut(sub_handler).unwrap().post(RawFunc::new(move ||{
 
+                                let mut do_ob_thread_sub = _do_ob.clone();
+                                let mut do_sub_thread_sub = _do_sub.clone();
+                                Arc::get_mut(sub_handler).unwrap().post(RawFunc::new(move ||{
+                                    let ob = Arc::make_mut(&mut do_ob_thread_sub);
+                                    let sub = Arc::make_mut(&mut do_sub_thread_sub);
+
+                                    (sub)((ob)());
                                 }));
                             },
                             None => {
@@ -147,7 +153,6 @@ fn test_monadio_new() {
 
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair2 = pair.clone();
-    let pair3 = pair.clone();
 
     thread::sleep(time::Duration::from_millis(100));
 
@@ -172,13 +177,6 @@ fn test_monadio_new() {
     h.post(RawFunc::new(move ||{}));
     h.post(RawFunc::new(move ||{}));
     h.post(RawFunc::new(move ||{}));
-    h.post(RawFunc::new(move ||{
-        let &(ref lock, ref cvar) = &*pair3;
-        let mut started = lock.lock().unwrap();
-        *started = true;
-
-        cvar.notify_one();
-        }));
 
     thread::sleep(time::Duration::from_millis(100));
 
