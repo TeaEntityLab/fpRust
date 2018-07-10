@@ -1,33 +1,70 @@
 use std::marker::PhantomData;
+use std::cmp::PartialEq;
+use std::time::{
+    SystemTime,
+    UNIX_EPOCH,
+};
 
 use std::sync::{
     Arc,
 };
 
-pub trait Subscription<X> : Send + Sync + 'static {
-    fn on_next(&mut self, x : X);
+pub fn get_mut<'a, T>(v: &'a mut Vec<T>, index: usize) -> Option<&'a mut T> {
+    let mut i = 0;
+    for elem in v {
+        if index == i {
+            return Some(elem)
+        }
+        i += 1;
+    }
+
+    None
+}
+
+// NOTE: From https://github.com/eliovir/rust-examples/blob/master/design_pattern-observer.rs
+// Observer
+// pub trait Observer<X> {
+// 	fn on_next(&mut self, x : Arc<X>);
+// }
+// Observable memorizes all Observers and send notifications
+pub trait Observable<X, T: Subscription<X>> {
+	fn add_observer(&mut self, observer: Arc<T>);
+	fn delete_observer(&mut self, observer: Arc<T>);
+	fn notify_observers(&mut self);
+}
+
+pub trait Subscription<X> : Send + Sync + 'static + PartialEq {
+    fn on_next(&mut self, x : Arc<X>);
 }
 
 #[derive(Clone)]
 pub struct SubscriptionFunc<T, F> {
+    id : String,
     pub receiver : RawReceiver<T, F>,
 }
 
-impl <T : Send + Sync + 'static, F: FnMut(&mut Option<T>) + Send + Sync + 'static + Clone> SubscriptionFunc<T, F> {
+impl <T : Send + Sync + 'static, F: FnMut(Arc<T>) + Send + Sync + 'static + Clone> SubscriptionFunc<T, F> {
     pub fn new(func: F) -> SubscriptionFunc<T, F> {
+        let since_the_epoch = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards");
+
         return SubscriptionFunc {
+            id : format!("{:?}", since_the_epoch),
             receiver: RawReceiver::new(func),
         };
     }
 }
 
-impl <T : Send + Sync + 'static, F: FnMut(&mut Option<T>) + Send + Sync + 'static + Clone> Subscription<T> for SubscriptionFunc<T, F> {
+impl <T : Send + Sync + 'static, F: FnMut(Arc<T>) + Send + Sync + 'static + Clone>
+    PartialEq for SubscriptionFunc<T, F> {
+	fn eq(&self, other: &SubscriptionFunc<T, F>) -> bool {
+		self.id == other.id
+	}
+}
 
-    fn on_next(&mut self, x : T) {
-        let mut val = Some(x);
+impl <T : Send + Sync + 'static, F: FnMut(Arc<T>) + Send + Sync + 'static + Clone> Subscription<T> for SubscriptionFunc<T, F> {
 
-        self.receiver.invoke(&mut val);
-
+    fn on_next(&mut self, x : Arc<T>) {
+        self.receiver.invoke(x);
     }
 }
 
@@ -37,7 +74,7 @@ pub struct RawReceiver<T, F> {
     _t: PhantomData<T>,
 }
 
-impl <T, F: FnMut(&mut Option<T>) + Send + Sync + 'static + Clone> RawReceiver<T, F> {
+impl <T, F: FnMut(Arc<T>) + Send + Sync + 'static + Clone> RawReceiver<T, F> {
     pub fn new(func: F) -> RawReceiver<T, F> {
         return RawReceiver {
             func: Arc::new(func),
@@ -45,7 +82,7 @@ impl <T, F: FnMut(&mut Option<T>) + Send + Sync + 'static + Clone> RawReceiver<T
         };
     }
 
-    pub fn invoke(&mut self, x : &mut Option<T>) {
+    pub fn invoke(&mut self, x : Arc<T>) {
         (Arc::make_mut(&mut self.func))(x);
     }
 }

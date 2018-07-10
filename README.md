@@ -18,11 +18,11 @@ Thus I implemented fpRust. I hope you would like it :)
 
 # Features
 
-* Optional/Maybe (Just a wrapper to built-in Option<T>, to make it more like a monad Maybe)
+* Optional/Maybe (a wrapper to built-in Option<T>, to make it more like a monad version *`Maybe`*)
 
 * Monad, Rx-like
 
-~~* Publisher~~
+* Publisher
 
 
 

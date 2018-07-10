@@ -77,7 +77,7 @@ impl <Y: 'static + Send + Sync + Clone, EFFECT : FnMut()->Y + Send + Sync + 'sta
         });
         let mut _s = s.clone();
         let mut _do_sub = Arc::new(move |y : Y|{
-            Arc::make_mut(&mut _s).on_next(y);
+            Arc::make_mut(&mut _s).on_next(Arc::new(y));
         });
 
         match self.ob_handler {
@@ -116,7 +116,7 @@ impl <Y: 'static + Send + Sync + Clone, EFFECT : FnMut()->Y + Send + Sync + 'sta
             },
         }
     }
-    pub fn subscribe_fn(self, func : impl FnMut(&mut Option<Y>) + Send + Sync + 'static + Clone) {
+    pub fn subscribe_fn(self, func : impl FnMut(Arc<Y>) + Send + Sync + 'static + Clone) {
         self.subscribe(Arc::new(SubscriptionFunc::new(func)))
     }
 }
@@ -144,12 +144,12 @@ fn test_monadio_new() {
 
     f2.subscribe_fn(move |x| {
         println!("f2 {:?}", x);
-        assert_eq!(9, x.unwrap());
+        assert_eq!(9, *Arc::make_mut(&mut x.clone()));
         });
 
-    let mut _s = Arc::new(SubscriptionFunc::new(move |x: &mut Option<u16>| {
+    let mut _s = Arc::new(SubscriptionFunc::new(move |x: Arc<u16>| {
         println!("I'm here {:?}", x);
-        assert_eq!(36, x.unwrap());
+        assert_eq!(36, *Arc::make_mut(&mut x.clone()));
     }));
     let mut _s2 = _s.clone();
     let f3 = MonadIO::new(of(1)).fmap(|x| MonadIO::new(move || x*4)).map(|x| x*3).map(|x| x*3);
@@ -175,7 +175,7 @@ fn test_monadio_new() {
     h2.start();
     println!("hh2 running");
 
-    let s = Arc::new(SubscriptionFunc::new(move |x: &mut Option<String>| {
+    let s = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
         println!("I got {:?}", x);
 
         let &(ref lock, ref cvar) = &*pair2;
