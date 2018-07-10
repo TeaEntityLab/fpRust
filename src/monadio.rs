@@ -1,6 +1,5 @@
 use std::sync::{
     Arc,
-    Mutex,
 };
 
 use handler::{
@@ -9,19 +8,26 @@ use handler::{
 
 use common::{
     Subscription,
+    SubscriptionFunc,
     RawFunc,
 };
 
-pub struct MonadIO<Y, EFFECT : FnOnce()->Y + Send + Sync + 'static> {
+#[derive(Clone)]
+pub struct MonadIO<Y, EFFECT : FnMut()->Y + Send + Sync + 'static + Clone> {
     effect : EFFECT,
     ob_handler : Option<Arc<Handler>>,
     sub_handler : Option<Arc<Handler>>,
 }
 
-impl <Y: 'static, EFFECT : FnOnce()->Y + Send + Sync + 'static> MonadIO<Y, EFFECT> {
+impl <Y: 'static + Send + Sync + Clone, EFFECT : FnMut()->Y + Send + Sync + 'static + Clone> MonadIO<Y, EFFECT> {
 
-    // pub fn just<Z : 'static, F2 : FnOnce()->Z>(r : Z) -> MonadIO<Z, impl FnOnce()->Z> {
-    //     return MonadIO::new(|| r);
+    // pub fn just(r : Y) -> MonadIO<Y, impl FnMut()->Y + Send + Sync + 'static + Clone> {
+    //     let _r = Arc::new(r);
+    //
+    //     return MonadIO::new(move || {
+    //         let r = _r.clone();
+    //         Arc::try_unwrap(r).ok().unwrap()
+    //     });
     // }
 
     pub fn new(effect : EFFECT) -> MonadIO<Y, EFFECT> {
@@ -37,17 +43,24 @@ impl <Y: 'static, EFFECT : FnOnce()->Y + Send + Sync + 'static> MonadIO<Y, EFFEC
             effect,
             ob_handler: ob,
             sub_handler: sub,
-        }
+        };
     }
 
-    pub fn fmap<Z: 'static, F : FnOnce(Y)->Z + Send + Sync + 'static>(self, func : F) -> MonadIO<Z, impl FnOnce()->Z> {
-        return MonadIO::new(move || func( (self.effect)() ));
+    pub fn fmap<Z: 'static + Send + Sync + Clone, F : FnMut(Y)->Z + Send + Sync + 'static + Clone>(self, func : F) -> MonadIO<Z, impl FnMut()->Z + Send + Sync + 'static + Clone> {
+        let _effect = Arc::new(self.effect);
+        let _func = Arc::new(func);
+
+        return MonadIO::new(move || {
+            let mut effect = _effect.clone();
+            let mut func = _func.clone();
+            (Arc::make_mut(&mut func))( (Arc::make_mut(&mut effect))() )}
+        );
     }
     pub fn subscribe(self, s : Arc<impl Subscription<Y> + Clone>) {
 
-        let _effect = Arc::new(self.effect);
+        let mut _effect = Arc::new(self.effect);
         let mut _do_ob = Arc::new(move ||{
-            let effect = Arc::try_unwrap(_effect).ok().unwrap();
+            let effect = Arc::make_mut(&mut _effect);
             return (effect)();
         });
         let mut _s = s.clone();
@@ -63,7 +76,7 @@ impl <Y: 'static, EFFECT : FnOnce()->Y + Send + Sync + 'static> MonadIO<Y, EFFEC
                 Arc::get_mut(&mut ob_handler).unwrap().post(RawFunc::new(move ||{
                         let do_ob_thread = _do_ob.clone();
                         let mut do_sub_thread = _do_sub.clone();
-                        let ob = Arc::try_unwrap(do_ob_thread).ok().unwrap();
+                        let mut ob = Arc::try_unwrap(do_ob_thread).ok().unwrap();
                         let sub = Arc::make_mut(&mut do_sub_thread);
 
                         match Arc::try_unwrap(sub_handler_thread.clone()).ok().unwrap() {
@@ -77,19 +90,23 @@ impl <Y: 'static, EFFECT : FnOnce()->Y + Send + Sync + 'static> MonadIO<Y, EFFEC
                     }));
             },
             None => {
-                let effect = Arc::try_unwrap(_do_ob).ok().unwrap();
+                let effect = Arc::make_mut(&mut _do_ob);
                 let sub = Arc::make_mut(&mut _do_sub);
                 sub(effect());
             },
         }
     }
-    pub fn subscribe_fn(self, func : impl FnOnce(Y)) {
-        (func)( (self.effect)() )
+    pub fn subscribe_fn(self, func : impl FnMut(&mut Option<Y>) + Send + Sync + 'static + Clone) {
+        self.subscribe(Arc::new(SubscriptionFunc::new(func)))
     }
 }
 
 #[test]
 fn test_monadio_new() {
+    use std::{
+        thread,
+        time,
+    };
     use std::sync::{
         Arc,
         Mutex,
@@ -100,34 +117,42 @@ fn test_monadio_new() {
     };
     use common::SubscriptionFunc;
 
-    let f1 = MonadIO::new(|| 3);
+    let mut f1 = MonadIO::new(|| 3);
     assert_eq!(3, (f1.effect)());
     let f2 = f1.fmap(|x| x*3);
 
-    let mut v = 0;
-    f2.subscribe_fn(|x| v = x);
-    assert_eq!(9, v);
+    f2.subscribe_fn(move |x| {
+        println!("f2 {:?}", x);
+        assert_eq!(9, x.unwrap());
+        });
 
     let mut _s = Arc::new(SubscriptionFunc::new(move |x: &mut Option<u16>| {
         println!("I'm here {:?}", x);
     }));
     let mut _s2 = _s.clone();
-    let mut s = Arc::make_mut(&mut _s);
-
     let f3 = MonadIO::new(|| 3).fmap(|x| x*3).fmap(|x| x*3);
     f3.subscribe(_s2);
 
     let mut _h = HandlerThread::new();
     let mut _h2 = HandlerThread::new();
-    let f4 = MonadIO::new_with_handlers(|| String::from("ok"), Some(_h.clone()), Some(_h2.clone()));
+    let f4 = MonadIO::new_with_handlers(|| {
+        println!("In string");
+        String::from("ok")
+        }, Some(_h.clone()), Some(_h2.clone()));
 
     let h = Arc::make_mut(&mut _h);
     let h2 = Arc::make_mut(&mut _h2);
 
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair2 = pair.clone();
+    let pair3 = pair.clone();
 
-    let mut _s = Arc::new(SubscriptionFunc::new(move |x: &mut Option<String>| {
+    println!("hh2");
+    h.start();
+    h2.start();
+    println!("hh2 running");
+
+    let s = Arc::new(SubscriptionFunc::new(move |x: &mut Option<String>| {
         println!("I got {:?}", x);
 
         let &(ref lock, ref cvar) = &*pair2;
@@ -136,12 +161,17 @@ fn test_monadio_new() {
 
         cvar.notify_one();
     }));
-    let mut _s2 = _s.clone();
-    let mut s = Arc::make_mut(&mut _s);
-    f4.subscribe(_s2);
+    f4.subscribe(s);
 
-    h.start();
-    h2.start();
+    h.post(RawFunc::new(move ||{
+        let &(ref lock, ref cvar) = &*pair3;
+        let mut started = lock.lock().unwrap();
+        *started = true;
+
+        cvar.notify_one();
+        }));
+
+    thread::sleep(time::Duration::from_millis(100));
 
     // let &(ref lock, ref cvar) = &*pair;
     // let mut started = lock.lock().unwrap();
