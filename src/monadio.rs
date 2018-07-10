@@ -19,15 +19,19 @@ pub struct MonadIO<Y, EFFECT : FnMut()->Y + Send + Sync + 'static + Clone> {
     sub_handler : Option<Arc<Handler>>,
 }
 
+pub fn of<Z : 'static + Send + Sync + Clone>(r : Z) -> impl FnMut()->Z + Send + Sync + 'static + Clone {
+    let _r = Box::new(r);
+
+    return move || {
+        let r = _r.clone();
+        *r
+    };
+}
+
 impl <Y: 'static + Send + Sync + Clone, EFFECT : FnMut()->Y + Send + Sync + 'static + Clone> MonadIO<Y, EFFECT> {
 
-    // pub fn just(r : Y) -> MonadIO<Y, impl FnMut()->Y + Send + Sync + 'static + Clone> {
-    //     let _r = Arc::new(r);
-    //
-    //     return MonadIO::new(move || {
-    //         let r = _r.clone();
-    //         Arc::try_unwrap(r).ok().unwrap()
-    //     });
+    // pub fn just<Z : 'static + Send + Sync + Clone, F : FnMut()->Z + Send + Sync + 'static + Clone>(r : Z) -> MonadIO<Z, impl FnMut()->Z + Send + Sync + 'static + Clone> {
+    //     return MonadIO::new(of(r));
     // }
 
     pub fn new(effect : EFFECT) -> MonadIO<Y, EFFECT> {
@@ -133,7 +137,8 @@ fn test_monadio_new() {
     };
     use common::SubscriptionFunc;
 
-    let mut f1 = MonadIO::new(|| 3);
+    let mut f1 = MonadIO::new(of(3));
+    // let mut f1 = MonadIO::just(3);
     assert_eq!(3, (f1.effect)());
     let f2 = f1.map(|x| x*3);
 
@@ -147,7 +152,7 @@ fn test_monadio_new() {
         assert_eq!(36, x.unwrap());
     }));
     let mut _s2 = _s.clone();
-    let f3 = MonadIO::new(|| 1).fmap(|x| MonadIO::new(move || x*4)).map(|x| x*3).map(|x| x*3);
+    let f3 = MonadIO::new(of(1)).fmap(|x| MonadIO::new(move || x*4)).map(|x| x*3).map(|x| x*3);
     f3.subscribe(_s2);
 
     let mut _h = HandlerThread::new();
