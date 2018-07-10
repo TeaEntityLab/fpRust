@@ -74,14 +74,16 @@ impl <Y: 'static + Send + Sync + Clone, EFFECT : FnMut()->Y + Send + Sync + 'sta
 
                 let mut sub_handler_thread = Arc::new(self.sub_handler);
                 Arc::get_mut(&mut ob_handler).unwrap().post(RawFunc::new(move ||{
-                        let do_ob_thread = _do_ob.clone();
+                        let mut do_ob_thread = _do_ob.clone();
                         let mut do_sub_thread = _do_sub.clone();
-                        let mut ob = Arc::try_unwrap(do_ob_thread).ok().unwrap();
+                        let ob = Arc::make_mut(&mut do_ob_thread);
                         let sub = Arc::make_mut(&mut do_sub_thread);
 
-                        match Arc::try_unwrap(sub_handler_thread.clone()).ok().unwrap() {
-                            Some(mut sub_handler) => {
-                                Arc::get_mut(&mut sub_handler).unwrap().post(RawFunc::new(||{}));
+                        match Arc::make_mut(&mut sub_handler_thread) {
+                            Some(ref mut sub_handler) => {
+                                Arc::get_mut(sub_handler).unwrap().post(RawFunc::new(move ||{
+
+                                }));
                             },
                             None => {
                                 (sub)((ob)());
@@ -147,6 +149,8 @@ fn test_monadio_new() {
     let pair2 = pair.clone();
     let pair3 = pair.clone();
 
+    thread::sleep(time::Duration::from_millis(100));
+
     println!("hh2");
     h.start();
     h2.start();
@@ -163,6 +167,11 @@ fn test_monadio_new() {
     }));
     f4.subscribe(s);
 
+    h.post(RawFunc::new(move ||{}));
+    h.post(RawFunc::new(move ||{}));
+    h.post(RawFunc::new(move ||{}));
+    h.post(RawFunc::new(move ||{}));
+    h.post(RawFunc::new(move ||{}));
     h.post(RawFunc::new(move ||{
         let &(ref lock, ref cvar) = &*pair3;
         let mut started = lock.lock().unwrap();
@@ -173,9 +182,9 @@ fn test_monadio_new() {
 
     thread::sleep(time::Duration::from_millis(100));
 
-    // let &(ref lock, ref cvar) = &*pair;
-    // let mut started = lock.lock().unwrap();
-    // while !*started {
-    //     started = cvar.wait(started).unwrap();
-    // }
+    let &(ref lock, ref cvar) = &*pair;
+    let mut started = lock.lock().unwrap();
+    while !*started {
+        started = cvar.wait(started).unwrap();
+    }
 }
