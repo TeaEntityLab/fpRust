@@ -50,6 +50,14 @@ impl <Y: 'static + Send + Sync + Clone, EFFECT : FnMut()->Y + Send + Sync + 'sta
         };
     }
 
+    pub fn observe_on(mut self, h : Option<Arc<Handler + 'static>>) {
+        self.ob_handler = h;
+    }
+
+    pub fn subscribe_on(mut self, h : Option<Arc<Handler + 'static>>) {
+        self.sub_handler = h;
+    }
+
     pub fn map<Z: 'static + Send + Sync + Clone, F : FnMut(Y)->Z + Send + Sync + 'static + Clone>(self, func : F) -> MonadIO<Z, impl FnMut()->Z + Send + Sync + 'static + Clone> {
         let _effect = Arc::new(self.effect);
         let _func = Arc::new(func);
