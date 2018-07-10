@@ -30,10 +30,10 @@ pub fn get_mut<'a, T>(v: &'a mut Vec<T>, index: usize) -> Option<&'a mut T> {
 pub trait Observable<X, T: Subscription<X>> {
 	fn add_observer(&mut self, observer: Arc<T>);
 	fn delete_observer(&mut self, observer: Arc<T>);
-	fn notify_observers(&mut self);
+	fn notify_observers(&mut self, x: Arc<X>);
 }
 
-pub trait Subscription<X> : Send + Sync + 'static + PartialEq {
+pub trait Subscription<X> : Send + Sync + 'static + PartialEq + Clone {
     fn on_next(&mut self, x : Arc<X>);
 }
 
@@ -43,7 +43,7 @@ pub struct SubscriptionFunc<T, F> {
     pub receiver : RawReceiver<T, F>,
 }
 
-impl <T : Send + Sync + 'static, F: FnMut(Arc<T>) + Send + Sync + 'static + Clone> SubscriptionFunc<T, F> {
+impl <T : Send + Sync + 'static + Clone, F: FnMut(Arc<T>) + Send + Sync + 'static + Clone> SubscriptionFunc<T, F> {
     pub fn new(func: F) -> SubscriptionFunc<T, F> {
         let since_the_epoch = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards");
 
@@ -54,14 +54,14 @@ impl <T : Send + Sync + 'static, F: FnMut(Arc<T>) + Send + Sync + 'static + Clon
     }
 }
 
-impl <T : Send + Sync + 'static, F: FnMut(Arc<T>) + Send + Sync + 'static + Clone>
+impl <T : Send + Sync + 'static + Clone, F: FnMut(Arc<T>) + Send + Sync + 'static + Clone>
     PartialEq for SubscriptionFunc<T, F> {
 	fn eq(&self, other: &SubscriptionFunc<T, F>) -> bool {
 		self.id == other.id
 	}
 }
 
-impl <T : Send + Sync + 'static, F: FnMut(Arc<T>) + Send + Sync + 'static + Clone> Subscription<T> for SubscriptionFunc<T, F> {
+impl <T : Send + Sync + 'static + Clone, F: FnMut(Arc<T>) + Send + Sync + 'static + Clone> Subscription<T> for SubscriptionFunc<T, F> {
 
     fn on_next(&mut self, x : Arc<T>) {
         self.receiver.invoke(x);
