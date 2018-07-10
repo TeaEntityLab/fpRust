@@ -13,7 +13,7 @@ pub struct SubscriptionFunc<T, F> {
     pub receiver : RawReceiver<T, F>,
 }
 
-impl <T : Send + Sync + 'static, F: FnMut(&mut Option<T>) + Send + Sync + 'static + Copy> SubscriptionFunc<T, F> {
+impl <T : Send + Sync + 'static, F: FnMut(&mut Option<T>) + Send + Sync + 'static + Clone> SubscriptionFunc<T, F> {
     pub fn new(func: F) -> SubscriptionFunc<T, F> {
         return SubscriptionFunc {
             receiver: RawReceiver::new(func),
@@ -21,7 +21,7 @@ impl <T : Send + Sync + 'static, F: FnMut(&mut Option<T>) + Send + Sync + 'stati
     }
 }
 
-impl <T : Send + Sync + 'static, F: FnMut(&mut Option<T>) + Send + Sync + 'static + Copy> Subscription<T> for SubscriptionFunc<T, F> {
+impl <T : Send + Sync + 'static, F: FnMut(&mut Option<T>) + Send + Sync + 'static + Clone> Subscription<T> for SubscriptionFunc<T, F> {
 
     fn on_next(&mut self, x : T) {
         let mut val = Some(x);
@@ -37,7 +37,7 @@ pub struct RawReceiver<T, F> {
     _t: PhantomData<T>,
 }
 
-impl <T, F: FnMut(&mut Option<T>) + Send + Sync + 'static + Copy> RawReceiver<T, F> {
+impl <T, F: FnMut(&mut Option<T>) + Send + Sync + 'static + Clone> RawReceiver<T, F> {
     pub fn new(func: F) -> RawReceiver<T, F> {
         return RawReceiver {
             func: Arc::new(func),

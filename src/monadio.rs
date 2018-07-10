@@ -119,14 +119,33 @@ fn test_monadio_new() {
 
     let mut _h = HandlerThread::new();
     let mut _h2 = HandlerThread::new();
-    let f4 = MonadIO::new_with_handlers(|| "ok", Some(_h.clone()), Some(_h2.clone()));
+    let f4 = MonadIO::new_with_handlers(|| String::from("ok"), Some(_h.clone()), Some(_h2.clone()));
 
     let h = Arc::make_mut(&mut _h);
-    h.start();
     let h2 = Arc::make_mut(&mut _h2);
-    h2.start();
 
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair2 = pair.clone();
 
+    let mut _s = Arc::new(SubscriptionFunc::new(move |x: &mut Option<String>| {
+        println!("I got {:?}", x);
+
+        let &(ref lock, ref cvar) = &*pair2;
+        let mut started = lock.lock().unwrap();
+        *started = true;
+
+        cvar.notify_one();
+    }));
+    let mut _s2 = _s.clone();
+    let mut s = Arc::make_mut(&mut _s);
+    f4.subscribe(_s2);
+
+    h.start();
+    h2.start();
+
+    // let &(ref lock, ref cvar) = &*pair;
+    // let mut started = lock.lock().unwrap();
+    // while !*started {
+    //     started = cvar.wait(started).unwrap();
+    // }
 }
