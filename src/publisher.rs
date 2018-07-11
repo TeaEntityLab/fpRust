@@ -4,13 +4,16 @@ use std::sync::{
 };
 use common::{
     Subscription,
+    SubscriptionFunc,
     Observable,
+    RawFunc,
     // get_mut,
 };
 use handler::{
     Handler,
 };
 
+#[derive(Clone)]
 struct Publisher<X, T> {
 	observers: Vec<Arc<T>>,
 
@@ -18,30 +21,42 @@ struct Publisher<X, T> {
 
     _x : PhantomData<X>,
 }
-impl<X, T : Subscription<X>> Publisher<X, T> {
+impl<X : Send + Sync + 'static + Clone, F: FnMut(Arc<X>) + Send + Sync + 'static + Clone> Publisher<X, SubscriptionFunc<X, F>> {
 
-    pub fn new() -> Publisher<X, T> {
+    pub fn new() -> Publisher<X, SubscriptionFunc<X, F>> {
         return Publisher {
             observers: vec!(),
             sub_handler: None,
             _x: PhantomData,
-        }
+        };
+    }
+    pub fn new_with_handlers(h : Option<Arc<Handler + 'static>>) -> Publisher<X, SubscriptionFunc<X, F>> {
+        let mut new_one = Publisher::new();
+        new_one.subscribe_on(h);
+        return new_one;
     }
 
 	fn publish(&mut self, val: X) {
 		self.notify_observers(Arc::new(val));
 	}
 
+    pub fn subscribe(&mut self, s : Arc<SubscriptionFunc<X, F>>) {
+        self.add_observer(s);
+    }
+    pub fn subscribe_fn(&mut self, func : F) {
+        self.subscribe(Arc::new(SubscriptionFunc::new(func)))
+    }
+
     pub fn subscribe_on(&mut self, h : Option<Arc<Handler + 'static>>) {
         self.sub_handler = h;
     }
 }
-impl<X, T: Subscription<X>> Observable<X, T> for Publisher<X, T> {
-	fn add_observer(&mut self, observer: Arc<T>) {
+impl<X : Send + Sync + 'static + Clone, F: FnMut(Arc<X>) + Send + Sync + 'static + Clone> Observable<X, SubscriptionFunc<X, F>> for Publisher<X, SubscriptionFunc<X, F>> {
+	fn add_observer(&mut self, observer: Arc<SubscriptionFunc<X, F>>) {
 		// println!("add_observer({});", observer);
 		self.observers.push(observer);
 	}
-	fn delete_observer(&mut self, mut observer: Arc<T>) {
+	fn delete_observer(&mut self, mut observer: Arc<SubscriptionFunc<X, F>>) {
 		for (index, obs) in self.observers.clone().iter().enumerate() {
 			if Arc::make_mut(&mut obs.clone()) == Arc::make_mut(&mut observer) {
 				// println!("delete_observer({});", observer);
@@ -51,13 +66,104 @@ impl<X, T: Subscription<X>> Observable<X, T> for Publisher<X, T> {
 		}
 	}
 	fn notify_observers(&mut self, val : Arc<X>) {
-        let mut _observers = &mut self.observers;
 
-        for (_, observer) in _observers.clone().iter_mut().enumerate() {
-            // let observer = get_mut(observers, index).unwrap();
-            let mut _observer = observer.clone();
-            let observer = Arc::make_mut(&mut _observer);
-            observer.on_next(val.clone());
-        }
+        let _observers = self.observers.clone();
+        let observers = Arc::new(_observers);
+        let mut _do_sub = Arc::new(move ||{
+            let mut _observers = observers.clone();
+            let observers = Arc::make_mut(&mut _observers);
+
+            for (_, observer) in observers.iter().enumerate() {
+                let mut _observer = observer.clone();
+                let observer = Arc::make_mut(&mut _observer);
+                observer.on_next(val.clone());
+            }
+        });
+
+        let sub_handler_thread = &mut self.sub_handler;
+        let mut do_sub_thread_ob = _do_sub.clone();
+
+        match sub_handler_thread {
+            Some(ref mut sub_handler) => {
+
+                let mut do_sub_thread_sub = _do_sub.clone();
+                Arc::get_mut(sub_handler).unwrap().post(RawFunc::new(move ||{
+                    let sub = Arc::make_mut(&mut do_sub_thread_sub);
+
+                    (sub)();
+                }));
+            },
+            None => {
+                let sub = Arc::make_mut(&mut do_sub_thread_ob);
+                (sub)();
+                },
+        };
 	}
+}
+
+
+#[test]
+fn test_monadio_new() {
+    use std::{
+        thread,
+        time,
+    };
+    use std::sync::{
+        Arc,
+        Mutex,
+        Condvar,
+    };
+    use handler::{
+        HandlerThread,
+    };
+    use common::SubscriptionFunc;
+
+    let mut pub1 = Publisher::new();
+    pub1.subscribe_fn(|x: Arc<u16>|{
+        println!("pub1 {:?}", x);
+        assert_eq!(9, *Arc::make_mut(&mut x.clone()));
+    });
+    pub1.publish(9);
+
+    let mut _h = HandlerThread::new();
+    let mut pub2 = Publisher::new_with_handlers(Some(_h.clone()));
+
+    let h = Arc::make_mut(&mut _h);
+
+    let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    let pair2 = pair.clone();
+
+    thread::sleep(time::Duration::from_millis(100));
+
+    println!("hh2");
+    h.start();
+    println!("hh2 running");
+
+    let s = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
+        println!("pub2 I got {:?}", x);
+
+        let &(ref lock, ref cvar) = &*pair2;
+        let mut started = lock.lock().unwrap();
+        *started = true;
+
+        cvar.notify_one();
+    }));
+    pub2.subscribe(s);
+
+
+    h.post(RawFunc::new(move ||{}));
+    h.post(RawFunc::new(move ||{}));
+    h.post(RawFunc::new(move ||{}));
+    h.post(RawFunc::new(move ||{}));
+    h.post(RawFunc::new(move ||{}));
+
+    pub2.publish(String::from("OKOK"));
+    pub2.publish(String::from("OKOK2"));
+    thread::sleep(time::Duration::from_millis(100));
+
+    let &(ref lock, ref cvar) = &*pair;
+    let mut started = lock.lock().unwrap();
+    while !*started {
+        started = cvar.wait(started).unwrap();
+    }
 }
