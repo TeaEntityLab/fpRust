@@ -1,6 +1,6 @@
 [package]
 name = "fp_rust"
-version = "0.1.16"
+version = "0.1.17"
 license = "MIT"
 authors = ["JunYi JohnTeee Lee <johnteee@gmail.com>"]
 include = ["src/**/*.rs", "Cargo.toml"]

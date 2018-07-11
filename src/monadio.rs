@@ -63,12 +63,27 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
         func: impl FnMut(Y) -> Z + Send + Sync + 'static + Clone,
     ) -> MonadIO<Z> {
         let _func = Arc::new(func);
-        let mut effect = self.effect;
+        let mut _effect = self.effect;
 
         return MonadIO::new_with_handlers(
             move || {
                 let mut func = _func.clone();
-                (Arc::make_mut(&mut func))((Arc::get_mut(&mut effect).unwrap())())
+
+                let effect_option = Arc::get_mut(&mut _effect);
+                let effect;
+                loop {
+                    match effect_option {
+                        Some(x) => {
+                            effect = x;
+                            break;
+                        }
+                        None => {
+                            continue;
+                        }
+                    }
+                }
+
+                (Arc::make_mut(&mut func))((effect)())
             },
             self.ob_handler,
             self.sub_handler,
@@ -83,13 +98,42 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
         return self.map(move |y: Y| {
             let mut func = _func.clone();
             let mut _effect = (Arc::make_mut(&mut func))(y).effect;
-            (Arc::get_mut(&mut _effect).unwrap())()
+
+            let effect_option = Arc::get_mut(&mut _effect);
+            let effect;
+            loop {
+                match effect_option {
+                    Some(x) => {
+                        effect = x;
+                        break;
+                    }
+                    None => {
+                        continue;
+                    }
+                }
+            }
+
+            (effect)()
         });
     }
     pub fn subscribe(self, s: Arc<impl Subscription<Y> + Clone>) {
         let mut _effect = self.effect;
         let mut _do_ob = Arc::new(move || {
-            return (Arc::get_mut(&mut _effect).unwrap())();
+            let effect_option = Arc::get_mut(&mut _effect);
+            let effect;
+            loop {
+                match effect_option {
+                    Some(x) => {
+                        effect = x;
+                        break;
+                    }
+                    None => {
+                        continue;
+                    }
+                }
+            }
+
+            return (effect)();
         });
         let mut _s = s.clone();
         let mut _do_sub = Arc::new(move |y: Y| {
@@ -97,34 +141,60 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
         });
 
         match self.ob_handler {
-            Some(mut ob_handler) => {
+            Some(mut _ob_handler) => {
                 let mut sub_handler_thread = Arc::new(self.sub_handler);
-                Arc::get_mut(&mut ob_handler)
-                    .unwrap()
-                    .post(RawFunc::new(move || {
-                        let mut do_ob_thread_ob = _do_ob.clone();
-                        let mut do_sub_thread_ob = _do_sub.clone();
-                        let ob = Arc::make_mut(&mut do_ob_thread_ob);
-                        let sub = Arc::make_mut(&mut do_sub_thread_ob);
 
-                        match Arc::make_mut(&mut sub_handler_thread) {
-                            Some(ref mut sub_handler) => {
-                                let mut do_ob_thread_sub = _do_ob.clone();
-                                let mut do_sub_thread_sub = _do_sub.clone();
-                                Arc::get_mut(sub_handler)
-                                    .unwrap()
-                                    .post(RawFunc::new(move || {
-                                        let ob = Arc::make_mut(&mut do_ob_thread_sub);
-                                        let sub = Arc::make_mut(&mut do_sub_thread_sub);
-
-                                        (sub)((ob)());
-                                    }));
-                            }
-                            None => {
-                                (sub)((ob)());
-                            }
+                let ob_handler_option = Arc::get_mut(&mut _ob_handler);
+                let ob_handler;
+                loop {
+                    match ob_handler_option {
+                        Some(x) => {
+                            ob_handler = x;
+                            break;
                         }
-                    }));
+                        None => {
+                            continue;
+                        }
+                    }
+                }
+
+                ob_handler.post(RawFunc::new(move || {
+                    let mut do_ob_thread_ob = _do_ob.clone();
+                    let mut do_sub_thread_ob = _do_sub.clone();
+                    let ob = Arc::make_mut(&mut do_ob_thread_ob);
+                    let sub = Arc::make_mut(&mut do_sub_thread_ob);
+
+                    match Arc::make_mut(&mut sub_handler_thread) {
+                        Some(ref mut _sub_handler) => {
+                            let mut do_ob_thread_sub = _do_ob.clone();
+                            let mut do_sub_thread_sub = _do_sub.clone();
+
+                            let sub_handler_option = Arc::get_mut(_sub_handler);
+                            let sub_handler;
+                            loop {
+                                match sub_handler_option {
+                                    Some(x) => {
+                                        sub_handler = x;
+                                        break;
+                                    }
+                                    None => {
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            sub_handler.post(RawFunc::new(move || {
+                                let ob = Arc::make_mut(&mut do_ob_thread_sub);
+                                let sub = Arc::make_mut(&mut do_sub_thread_sub);
+
+                                (sub)((ob)());
+                            }));
+                        }
+                        None => {
+                            (sub)((ob)());
+                        }
+                    }
+                }));
             }
             None => {
                 let effect = Arc::make_mut(&mut _do_ob);
