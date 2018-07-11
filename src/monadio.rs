@@ -46,11 +46,11 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
         };
     }
 
-    pub fn observe_on(mut self, h: Option<Arc<Mutex<Handler + 'static>>>) {
+    pub fn observe_on(&mut self, h: Option<Arc<Mutex<Handler + 'static>>>) {
         self.ob_handler = h;
     }
 
-    pub fn subscribe_on(mut self, h: Option<Arc<Mutex<Handler + 'static>>>) {
+    pub fn subscribe_on(&mut self, h: Option<Arc<Mutex<Handler + 'static>>>) {
         self.sub_handler = h;
     }
 
@@ -88,8 +88,8 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
             (effect)()
         });
     }
-    pub fn subscribe(self, s: Arc<impl Subscription<Y> + Clone>) {
-        let mut _effect = self.effect;
+    pub fn subscribe(&self, s: Arc<impl Subscription<Y> + Clone>) {
+        let mut _effect = self.effect.clone();
         let mut _do_ob = Arc::new(move || {
             let effect = &mut *_effect.lock().unwrap();
 
@@ -100,9 +100,9 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
             Arc::make_mut(&mut _s).on_next(Arc::new(y));
         });
 
-        match self.ob_handler {
+        match &self.ob_handler {
             Some(ob_handler) => {
-                let mut sub_handler_thread = Arc::new(self.sub_handler);
+                let mut sub_handler_thread = Arc::new(self.sub_handler.clone());
                 ob_handler.lock().unwrap().post(RawFunc::new(move || {
                     let mut do_ob_thread_ob = _do_ob.clone();
                     let mut do_sub_thread_ob = _do_sub.clone();
@@ -134,7 +134,7 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
             }
         }
     }
-    pub fn subscribe_fn(self, func: impl FnMut(Arc<Y>) + Send + Sync + 'static + Clone) {
+    pub fn subscribe_fn(&self, func: impl FnMut(Arc<Y>) + Send + Sync + 'static + Clone) {
         self.subscribe(Arc::new(SubscriptionFunc::new(func)))
     }
 }
@@ -198,6 +198,9 @@ fn test_monadio_new() {
         cvar.notify_one(); // Unlock here
     }));
     monadioAsync.subscribe(subscription);
+    monadioAsync.subscribe(Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
+        println!("monadioAsync sub2 {:?}", x); // monadioAsync sub2 ok
+    })));
     {
         let mut handlerObserveOn = _handlerObserveOn.lock().unwrap();
         let mut handlerSubscribeOn = _handlerSubscribeOn.lock().unwrap();
