@@ -146,7 +146,7 @@ fn test_monadio_new() {
     use std::sync::{Arc, Condvar, Mutex};
     use std::{thread, time};
 
-    let mut monadio_simple = MonadIO::just(3);
+    let monadio_simple = MonadIO::just(3);
     // let mut monadio_simple = MonadIO::just(3);
     {
         let effect = &mut *monadio_simple.effect.lock().unwrap();
@@ -161,26 +161,26 @@ fn test_monadio_new() {
 
     // fmap & map (sync)
     let mut _subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<u16>| {
-        println!("monadioSync {:?}", x); // monadioSync 36
+        println!("monadio_sync {:?}", x); // monadio_sync 36
         assert_eq!(36, *Arc::make_mut(&mut x.clone()));
     }));
-    let mut subscription = _subscription.clone();
-    let monadioSync = MonadIO::just(1)
+    let subscription = _subscription.clone();
+    let monadio_sync = MonadIO::just(1)
         .fmap(|x| MonadIO::new(move || x * 4))
         .map(|x| x * 3)
         .map(|x| x * 3);
-    monadioSync.subscribe(subscription);
+    monadio_sync.subscribe(subscription);
 
     // fmap & map (async)
-    let mut _handlerObserveOn = HandlerThread::new_with_mutex();
-    let mut _handlerSubscribeOn = HandlerThread::new_with_mutex();
-    let monadioAsync = MonadIO::new_with_handlers(
+    let mut _handler_observe_on = HandlerThread::new_with_mutex();
+    let mut _handler_subscribe_on = HandlerThread::new_with_mutex();
+    let monadio_async = MonadIO::new_with_handlers(
         || {
             println!("In string");
             String::from("ok")
         },
-        Some(_handlerObserveOn.clone()),
-        Some(_handlerSubscribeOn.clone()),
+        Some(_handler_observe_on.clone()),
+        Some(_handler_subscribe_on.clone()),
     );
 
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
@@ -189,7 +189,7 @@ fn test_monadio_new() {
     thread::sleep(time::Duration::from_millis(100));
 
     let subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
-        println!("monadioAsync {:?}", x); // monadioAsync ok
+        println!("monadio_async {:?}", x); // monadio_async ok
 
         let &(ref lock, ref cvar) = &*pair2;
         let mut started = lock.lock().unwrap();
@@ -197,24 +197,24 @@ fn test_monadio_new() {
 
         cvar.notify_one(); // Unlock here
     }));
-    monadioAsync.subscribe(subscription);
-    monadioAsync.subscribe(Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
-        println!("monadioAsync sub2 {:?}", x); // monadioAsync sub2 ok
+    monadio_async.subscribe(subscription);
+    monadio_async.subscribe(Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
+        println!("monadio_async sub2 {:?}", x); // monadio_async sub2 ok
     })));
     {
-        let mut handlerObserveOn = _handlerObserveOn.lock().unwrap();
-        let mut handlerSubscribeOn = _handlerSubscribeOn.lock().unwrap();
+        let mut handler_observe_on = _handler_observe_on.lock().unwrap();
+        let mut handler_subscribe_on = _handler_subscribe_on.lock().unwrap();
 
         println!("hh2");
-        handlerObserveOn.start();
-        handlerSubscribeOn.start();
+        handler_observe_on.start();
+        handler_subscribe_on.start();
         println!("hh2 running");
 
-        handlerObserveOn.post(RawFunc::new(move || {}));
-        handlerObserveOn.post(RawFunc::new(move || {}));
-        handlerObserveOn.post(RawFunc::new(move || {}));
-        handlerObserveOn.post(RawFunc::new(move || {}));
-        handlerObserveOn.post(RawFunc::new(move || {}));
+        handler_observe_on.post(RawFunc::new(move || {}));
+        handler_observe_on.post(RawFunc::new(move || {}));
+        handler_observe_on.post(RawFunc::new(move || {}));
+        handler_observe_on.post(RawFunc::new(move || {}));
+        handler_observe_on.post(RawFunc::new(move || {}));
     }
     thread::sleep(time::Duration::from_millis(100));
 

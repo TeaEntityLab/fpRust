@@ -26,12 +26,12 @@ impl<T> Maybe<T> {
             None => return true,
         }
     }
-    pub fn let_do<F>(self, func: F)
+    pub fn let_do<F>(&self, func: F)
     where
-        F: FnOnce(T),
+        F: FnOnce(&T),
     {
-        match self.r {
-            Some(_x) => func(_x),
+        match &self.r {
+            Some(_x) => func(&_x),
             None => (),
         }
     }
@@ -95,11 +95,11 @@ fn test_maybe_present() {
     let mut val;
 
     val = false;
-    Maybe::just(None::<bool>).let_do(|x| val = x);
+    Maybe::just(None::<bool>).let_do(|x| val = *x);
     assert_eq!(false, val);
 
     val = false;
-    Maybe::val(true).let_do(|x| val = x);
+    Maybe::val(true).let_do(|x| val = *x);
     assert_eq!(true, val);
 }
 #[test]
