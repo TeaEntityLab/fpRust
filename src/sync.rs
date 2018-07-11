@@ -1,21 +1,13 @@
-use std::time::{
-    Duration,
-};
 use std::sync::{
-    Arc,
-    Mutex,
-    atomic::{
-        AtomicBool,
-        Ordering,
-    },
-
-    mpsc,
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc, Mutex,
 };
+use std::time::Duration;
 
 pub trait Queue<T> {
-    fn offer(&mut self, v : T);
+    fn offer(&mut self, v: T);
     fn poll(&mut self) -> Option<T>;
-    fn put(&mut self, v : T);
+    fn put(&mut self, v: T);
     fn take(&mut self) -> Option<T>;
 }
 
@@ -34,9 +26,9 @@ pub struct BlockingQueue<T> {
 //     }
 // }
 
-impl <T> BlockingQueue<T> {
+impl<T> BlockingQueue<T> {
     pub fn new() -> BlockingQueue<T> {
-        let (blocking_sender,blocking_recever) = mpsc::channel();
+        let (blocking_sender, blocking_recever) = mpsc::channel();
 
         return BlockingQueue {
             alive: Arc::new(Mutex::new(AtomicBool::new(true))),
@@ -66,8 +58,8 @@ impl <T> BlockingQueue<T> {
     }
 }
 
-impl <T: 'static + Send> Queue<T> for BlockingQueue<T> {
-    fn offer(&mut self, v : T) {
+impl<T: 'static + Send> Queue<T> for BlockingQueue<T> {
+    fn offer(&mut self, v: T) {
         {
             let alive = &self.alive.lock().unwrap();
             if !alive.load(Ordering::SeqCst) {
@@ -82,7 +74,6 @@ impl <T: 'static + Send> Queue<T> for BlockingQueue<T> {
     }
 
     fn poll(&mut self) -> Option<T> {
-
         if !self.is_alive() {
             return None::<T>;
         }
@@ -96,10 +87,9 @@ impl <T: 'static + Send> Queue<T> for BlockingQueue<T> {
 
             return result.ok();
         }
-
     }
 
-    fn put(&mut self, v : T) {
+    fn put(&mut self, v: T) {
         // NOTE Currently there's no maximum size of BlockingQueue.
 
         self.offer(v);
@@ -114,15 +104,14 @@ impl <T: 'static + Send> Queue<T> for BlockingQueue<T> {
             {
                 match self.timeout {
                     Some(duration) => {
-                        let result = self.blocking_recever.lock().unwrap()
-                            .recv_timeout(duration);
+                        let result = self.blocking_recever.lock().unwrap().recv_timeout(duration);
 
                         if self.panic && result.is_err() {
                             panic!(result.err());
                         }
 
                         return result.ok();
-                    },
+                    }
                     None => {
                         let result = self.blocking_recever.lock().unwrap().recv();
 
@@ -131,7 +120,7 @@ impl <T: 'static + Send> Queue<T> for BlockingQueue<T> {
                         }
 
                         return result.ok();
-                    },
+                    }
                 }
             }
         }

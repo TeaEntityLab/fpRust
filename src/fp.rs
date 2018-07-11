@@ -1,4 +1,3 @@
-
 // NOTE Credit https://stackoverflow.com/questions/45786955/how-to-compose-functions-in-rust
 #[macro_export]
 macro_rules! compose {

@@ -1,30 +1,21 @@
-
-use std::{
-    thread,
-};
 use std::sync::{
-    Arc,
-    Mutex,
-    atomic::{
-        AtomicBool,
-        Ordering,
-    },
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
 };
+use std::thread;
 
 use common::RawFunc;
 use sync as fpSync;
-use sync::{
-    Queue,
-};
+use sync::Queue;
 
-pub trait Handler : Send + Sync + 'static {
+pub trait Handler: Send + Sync + 'static {
     fn is_started(&mut self) -> bool;
     fn is_alive(&mut self) -> bool;
 
     fn start(&mut self);
     fn stop(&mut self);
 
-    fn post(&mut self, func : RawFunc);
+    fn post(&mut self, func: RawFunc);
 }
 
 #[derive(Clone)]
@@ -48,7 +39,6 @@ impl HandlerThread {
 }
 
 impl Handler for HandlerThread {
-
     fn is_started(&mut self) -> bool {
         let _started_alive = self.started_alive.clone();
         let started_alive = _started_alive.lock().unwrap();
@@ -64,7 +54,6 @@ impl Handler for HandlerThread {
     }
 
     fn start(&mut self) {
-
         {
             let _started_alive = self.started_alive.clone();
             let started_alive = _started_alive.lock().unwrap();
@@ -84,7 +73,6 @@ impl Handler for HandlerThread {
 
         let _started_alive = self.started_alive.clone();
         self.handle = Arc::new(Mutex::new(Some(thread::spawn(move || {
-
             /*
             let inner : &mut HandlerThreadInner;
             let inner_temp = Arc::get_mut(&mut _inner);
@@ -138,8 +126,10 @@ impl Handler for HandlerThread {
 
         let mut handle = self.handle.lock().unwrap();
         handle
-            .take().expect("Called stop on non-running thread")
-            .join().expect("Could not join spawned thread");
+            .take()
+            .expect("Called stop on non-running thread")
+            .join()
+            .expect("Could not join spawned thread");
     }
 
     fn post(&mut self, func: RawFunc) {
@@ -150,7 +140,6 @@ impl Handler for HandlerThread {
 #[derive(Clone)]
 struct HandlerThreadInner {
     // this: Option<Arc<HandlerThreadInner>>,
-
     started: Arc<AtomicBool>,
     alive: Arc<AtomicBool>,
     q: Arc<fpSync::BlockingQueue<RawFunc>>,
@@ -164,11 +153,9 @@ impl HandlerThreadInner {
             q: Arc::new(<fpSync::BlockingQueue<RawFunc>>::new()),
         };
     }
-
 }
 
 impl Handler for HandlerThreadInner {
-
     fn is_started(&mut self) -> bool {
         return self.started.load(Ordering::SeqCst);
     }
@@ -177,7 +164,7 @@ impl Handler for HandlerThreadInner {
         return self.alive.load(Ordering::SeqCst);
     }
 
-    fn start(&mut self){
+    fn start(&mut self) {
         self.alive.store(true, Ordering::SeqCst);
         let alive = self.alive.clone();
 
@@ -194,10 +181,10 @@ impl Handler for HandlerThreadInner {
             match v {
                 Some(f) => {
                     f.invoke();
-                },
+                }
                 None => {
                     self.alive.store(false, Ordering::SeqCst);
-                },
+                }
             }
         }
     }
@@ -215,13 +202,7 @@ impl Handler for HandlerThreadInner {
 
 #[test]
 fn test_handler_new() {
-
-    use std::{
-        sync::{
-            Condvar,
-        },
-        time,
-    };
+    use std::{sync::Condvar, time};
 
     let mut _h = HandlerThread::new();
     let h = Arc::make_mut(&mut _h);
@@ -242,7 +223,7 @@ fn test_handler_new() {
     let pair2 = pair.clone();
 
     // /*
-    h.post(RawFunc::new(move ||{
+    h.post(RawFunc::new(move || {
         println!("Executed !");
 
         let pair3 = pair2.clone();
@@ -253,7 +234,7 @@ fn test_handler_new() {
         let h2 = Arc::make_mut(&mut _h2);
         h2.start();
 
-        h2.post(RawFunc::new(move ||{
+        h2.post(RawFunc::new(move || {
             let &(ref lock, ref cvar) = &*pair3;
             let mut started = lock.lock().unwrap();
             *started = true;
@@ -262,8 +243,7 @@ fn test_handler_new() {
 
             Arc::make_mut(&mut _h2_inside).stop();
         }));
-
-        }));
+    }));
     println!("Test");
 
     thread::sleep(time::Duration::from_millis(100));
