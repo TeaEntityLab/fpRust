@@ -14,7 +14,7 @@ use handler::{
 };
 
 #[derive(Clone)]
-struct Publisher<X, T> {
+pub struct Publisher<X, T> {
 	observers: Vec<Arc<T>>,
 
     sub_handler : Option<Arc<Handler>>,
