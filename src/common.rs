@@ -2,7 +2,10 @@ use std::cmp::PartialEq;
 use std::marker::PhantomData;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+// pub trait FnMutReceiveThreadSafe<X>: FnMut(Arc<X>) + Send + Sync + 'static {}
+// pub trait FnMutReturnThreadSafe<X>: FnMut() -> X + Send + Sync + 'static {}
 
 pub fn get_mut<'a, T>(v: &'a mut Vec<T>, index: usize) -> Option<&'a mut T> {
     let mut i = 0;
@@ -33,15 +36,13 @@ pub trait Subscription<X>: Send + Sync + 'static + PartialEq + Clone {
 }
 
 #[derive(Clone)]
-pub struct SubscriptionFunc<T, F> {
+pub struct SubscriptionFunc<T> {
     id: String,
-    pub receiver: RawReceiver<T, F>,
+    pub receiver: RawReceiver<T>,
 }
 
-impl<T: Send + Sync + 'static + Clone, F: FnMut(Arc<T>) + Send + Sync + 'static + Clone>
-    SubscriptionFunc<T, F>
-{
-    pub fn new(func: F) -> SubscriptionFunc<T, F> {
+impl<T: Send + Sync + 'static + Clone> SubscriptionFunc<T> {
+    pub fn new(func: impl FnMut(Arc<T>) + Send + Sync + 'static) -> SubscriptionFunc<T> {
         let since_the_epoch = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards");
@@ -53,38 +54,35 @@ impl<T: Send + Sync + 'static + Clone, F: FnMut(Arc<T>) + Send + Sync + 'static 
     }
 }
 
-impl<T: Send + Sync + 'static + Clone, F: FnMut(Arc<T>) + Send + Sync + 'static + Clone> PartialEq
-    for SubscriptionFunc<T, F>
-{
-    fn eq(&self, other: &SubscriptionFunc<T, F>) -> bool {
+impl<T: Send + Sync + 'static + Clone> PartialEq for SubscriptionFunc<T> {
+    fn eq(&self, other: &SubscriptionFunc<T>) -> bool {
         self.id == other.id
     }
 }
 
-impl<T: Send + Sync + 'static + Clone, F: FnMut(Arc<T>) + Send + Sync + 'static + Clone>
-    Subscription<T> for SubscriptionFunc<T, F>
-{
+impl<T: Send + Sync + 'static + Clone> Subscription<T> for SubscriptionFunc<T> {
     fn on_next(&mut self, x: Arc<T>) {
         self.receiver.invoke(x);
     }
 }
 
 #[derive(Clone)]
-pub struct RawReceiver<T, F> {
-    func: Arc<F>,
+pub struct RawReceiver<T> {
+    func: Arc<Mutex<dyn FnMut(Arc<T>) + Send + Sync + 'static>>,
     _t: PhantomData<T>,
 }
 
-impl<T, F: FnMut(Arc<T>) + Send + Sync + 'static + Clone> RawReceiver<T, F> {
-    pub fn new(func: F) -> RawReceiver<T, F> {
+impl<T> RawReceiver<T> {
+    pub fn new(func: impl FnMut(Arc<T>) + Send + Sync + 'static) -> RawReceiver<T> {
         return RawReceiver {
-            func: Arc::new(func),
+            func: Arc::new(Mutex::new(func)),
             _t: PhantomData,
         };
     }
 
     pub fn invoke(&mut self, x: Arc<T>) {
-        (Arc::make_mut(&mut self.func))(x);
+        let func = &mut *self.func.lock().unwrap();
+        (func)(x);
     }
 }
 
