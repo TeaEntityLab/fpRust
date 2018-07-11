@@ -103,7 +103,7 @@ impl<X : Send + Sync + 'static + Clone, F: FnMut(Arc<X>) + Send + Sync + 'static
 
 
 #[test]
-fn test_monadio_new() {
+fn test_publisher_new() {
     use std::{
         thread,
         time,
