@@ -120,7 +120,7 @@ let mut _subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<u16>| {
     println!("Value: {:?}", x); // Value: 36
 }));
 let mut subscription = _subscription.clone();
-let monadioSync = MonadIO::new(of(1)).fmap(|x| MonadIO::new(move || x*4)).map(|x| x*3).map(|x| x*3);
+let monadioSync = MonadIO::just(1).fmap(|x| MonadIO::new(move || x*4)).map(|x| x*3).map(|x| x*3);
 monadioSync.subscribe(subscription);
 
 // fmap & map (async)

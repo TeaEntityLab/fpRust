@@ -5,15 +5,13 @@ use handler::Handler;
 use common::{RawFunc, Subscription, SubscriptionFunc};
 
 #[derive(Clone)]
-pub struct MonadIO<Y, EFFECT: FnMut() -> Y + Send + Sync + 'static + Clone> {
-    effect: EFFECT,
+pub struct MonadIO<Y> {
+    effect: Arc<dyn FnMut() -> Y + Send + Sync + 'static>,
     ob_handler: Option<Arc<Handler>>,
     sub_handler: Option<Arc<Handler>>,
 }
 
-pub fn of<Z: 'static + Send + Sync + Clone>(
-    r: Z,
-) -> impl FnMut() -> Z + Send + Sync + 'static + Clone {
+pub fn of<Z: 'static + Send + Sync + Clone>(r: Z) -> impl FnMut() -> Z + Send + Sync + 'static {
     let _r = Box::new(r);
 
     return move || {
@@ -22,28 +20,31 @@ pub fn of<Z: 'static + Send + Sync + Clone>(
     };
 }
 
-impl<Y: 'static + Send + Sync + Clone, EFFECT: FnMut() -> Y + Send + Sync + 'static + Clone>
-    MonadIO<Y, EFFECT>
-{
-    // pub fn just<Z : 'static + Send + Sync + Clone, F : FnMut()->Z + Send + Sync + 'static + Clone>(r : Z) -> MonadIO<Z, impl FnMut()->Z + Send + Sync + 'static + Clone> {
-    //     return MonadIO::new(of(r));
-    // }
+impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
+    pub fn just(r: Y) -> MonadIO<Y> {
+        let _r = Box::new(r);
 
-    pub fn new(effect: EFFECT) -> MonadIO<Y, EFFECT> {
+        return MonadIO::new(move || {
+            let r = _r.clone();
+            *r
+        });
+    }
+
+    pub fn new(effect: impl FnMut() -> Y + Send + Sync + 'static) -> MonadIO<Y> {
         return MonadIO {
-            effect,
+            effect: Arc::new(effect),
             ob_handler: None,
             sub_handler: None,
         };
     }
 
     pub fn new_with_handlers(
-        effect: EFFECT,
+        effect: impl FnMut() -> Y + Send + Sync + 'static,
         ob: Option<Arc<Handler + 'static>>,
         sub: Option<Arc<Handler + 'static>>,
-    ) -> MonadIO<Y, EFFECT> {
+    ) -> MonadIO<Y> {
         return MonadIO {
-            effect,
+            effect: Arc::new(effect),
             ob_handler: ob,
             sub_handler: sub,
         };
@@ -57,46 +58,38 @@ impl<Y: 'static + Send + Sync + Clone, EFFECT: FnMut() -> Y + Send + Sync + 'sta
         self.sub_handler = h;
     }
 
-    pub fn map<
-        Z: 'static + Send + Sync + Clone,
-        F: FnMut(Y) -> Z + Send + Sync + 'static + Clone,
-    >(
+    pub fn map<Z: 'static + Send + Sync + Clone>(
         self,
-        func: F,
-    ) -> MonadIO<Z, impl FnMut() -> Z + Send + Sync + 'static + Clone> {
-        let _effect = Arc::new(self.effect);
+        func: impl FnMut(Y) -> Z + Send + Sync + 'static + Clone,
+    ) -> MonadIO<Z> {
         let _func = Arc::new(func);
+        let mut effect = self.effect;
 
         return MonadIO::new_with_handlers(
             move || {
-                let mut effect = _effect.clone();
                 let mut func = _func.clone();
-                (Arc::make_mut(&mut func))((Arc::make_mut(&mut effect))())
+                (Arc::make_mut(&mut func))((Arc::get_mut(&mut effect).unwrap())())
             },
             self.ob_handler,
             self.sub_handler,
         );
     }
-    pub fn fmap<
-        Z: 'static + Send + Sync + Clone,
-        Fi1: FnMut() -> Z + Send + Sync + 'static + Clone,
-        F: FnMut(Y) -> MonadIO<Z, Fi1> + Send + Sync + 'static + Clone,
-    >(
+    pub fn fmap<Z: 'static + Send + Sync + Clone>(
         self,
-        func: F,
-    ) -> MonadIO<Z, impl FnMut() -> Z + Send + Sync + 'static + Clone> {
-        let _func = Arc::new(func);
+        func: impl FnMut(Y) -> MonadIO<Z> + Send + Sync + 'static + Clone,
+    ) -> MonadIO<Z> {
+        let mut _func = Arc::new(func);
 
         return self.map(move |y: Y| {
             let mut func = _func.clone();
-            ((Arc::make_mut(&mut func))(y).effect)()
+            let mut _effect = (Arc::make_mut(&mut func))(y).effect;
+            (Arc::get_mut(&mut _effect).unwrap())()
         });
     }
     pub fn subscribe(self, s: Arc<impl Subscription<Y> + Clone>) {
-        let mut _effect = Arc::new(self.effect);
+        let mut _effect = self.effect;
         let mut _do_ob = Arc::new(move || {
-            let effect = Arc::make_mut(&mut _effect);
-            return (effect)();
+            return (Arc::get_mut(&mut _effect).unwrap())();
         });
         let mut _s = s.clone();
         let mut _do_sub = Arc::new(move |y: Y| {
@@ -152,9 +145,9 @@ fn test_monadio_new() {
     use std::sync::{Arc, Condvar, Mutex};
     use std::{thread, time};
 
-    let mut f1 = MonadIO::new(of(3));
+    let mut f1 = MonadIO::just(3);
     // let mut f1 = MonadIO::just(3);
-    assert_eq!(3, (f1.effect)());
+    assert_eq!(3, (Arc::get_mut(&mut f1.effect).unwrap())());
     let f2 = f1.map(|x| x * 3);
 
     f2.subscribe_fn(move |x| {
