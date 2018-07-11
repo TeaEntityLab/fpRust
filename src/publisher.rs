@@ -1,10 +1,4 @@
-use common::{
-    Observable,
-    RawFunc,
-    // get_mut,
-    Subscription,
-    SubscriptionFunc,
-};
+use common::{Observable, RawFunc, Subscription, SubscriptionFunc};
 use handler::Handler;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -82,15 +76,28 @@ impl<X: Send + Sync + 'static + Clone> Observable<X, SubscriptionFunc<X>>
         let mut do_sub_thread_ob = _do_sub.clone();
 
         match sub_handler_thread {
-            Some(ref mut sub_handler) => {
+            Some(ref mut _sub_handler) => {
                 let mut do_sub_thread_sub = _do_sub.clone();
-                Arc::get_mut(sub_handler)
-                    .unwrap()
-                    .post(RawFunc::new(move || {
-                        let sub = Arc::make_mut(&mut do_sub_thread_sub);
 
-                        (sub)();
-                    }));
+                let sub_handler_option = Arc::get_mut(_sub_handler);
+                let sub_handler;
+                loop {
+                    match sub_handler_option {
+                        Some(x) => {
+                            sub_handler = x;
+                            break;
+                        }
+                        None => {
+                            continue;
+                        }
+                    }
+                }
+
+                sub_handler.post(RawFunc::new(move || {
+                    let sub = Arc::make_mut(&mut do_sub_thread_sub);
+
+                    (sub)();
+                }));
             }
             None => {
                 let sub = Arc::make_mut(&mut do_sub_thread_ob);

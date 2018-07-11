@@ -88,7 +88,7 @@ impl<T> RawReceiver<T> {
 
 #[derive(Clone)]
 pub struct RawFunc {
-    func: Arc<FnMut() + Send + Sync + 'static>,
+    func: Arc<Mutex<FnMut() + Send + Sync + 'static>>,
 }
 
 impl RawFunc {
@@ -97,11 +97,12 @@ impl RawFunc {
         T: FnMut() + Send + Sync + 'static,
     {
         return RawFunc {
-            func: Arc::new(func),
+            func: Arc::new(Mutex::new(func)),
         };
     }
 
-    pub fn invoke(mut self) {
-        (Arc::get_mut(&mut self.func).unwrap())();
+    pub fn invoke(self) {
+        let func = &mut *self.func.lock().unwrap();
+        (func)();
     }
 }
