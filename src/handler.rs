@@ -82,6 +82,7 @@ impl Handler for HandlerThread {
 
         let mut _inner = self.inner.clone();
 
+        let _started_alive = self.started_alive.clone();
         self.handle = Arc::new(Mutex::new(Some(thread::spawn(move || {
 
             /*
@@ -102,6 +103,16 @@ impl Handler for HandlerThread {
             }
             */
             Arc::make_mut(&mut _inner).start();
+
+            {
+                let started_alive = _started_alive.lock().unwrap();
+                let &(_, ref alive) = &*started_alive;
+
+                if !alive.load(Ordering::SeqCst) {
+                    return;
+                }
+                alive.store(false, Ordering::SeqCst);
+            }
         }))));
     }
 
@@ -125,22 +136,10 @@ impl Handler for HandlerThread {
         }
         Arc::make_mut(&mut self.inner).stop();
 
-        let mut _handle = &mut self.handle;
-        let option = Arc::get_mut(_handle);
-        loop {
-            match option {
-                Some(m) => {
-                    let mut handle = m.lock().unwrap();
-                    handle
-                        .take().expect("Called stop on non-running thread")
-                        .join().expect("Could not join spawned thread");
-                    break;
-                },
-                None => {
-                    continue;
-                }
-            }
-        }
+        let mut handle = self.handle.lock().unwrap();
+        handle
+            .take().expect("Called stop on non-running thread")
+            .join().expect("Could not join spawned thread");
     }
 
     fn post(&mut self, func: RawFunc) {
@@ -192,7 +191,14 @@ impl Handler for HandlerThreadInner {
         while alive.load(Ordering::SeqCst) {
             let v = q.take();
 
-            v.invoke();
+            match v {
+                Some(f) => {
+                    f.invoke();
+                },
+                None => {
+                    self.alive.store(false, Ordering::SeqCst);
+                },
+            }
         }
     }
 
