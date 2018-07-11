@@ -24,15 +24,10 @@ Thus I implemented fpRust. I hope you would like it :)
 
 * Publisher
 
-
+* Fp functions
+  * Currently only compose!() <- __macro__
 
 ~~* Pattern matching~~
-
-~~* Fp functions~~ -> Currently only compose!() <- __macro__
-
-
-
-~~* Java8Stream-like Collection~~
 
 ~~* PythonicGenerator-like Coroutine(yield/yieldFrom)~~
 
