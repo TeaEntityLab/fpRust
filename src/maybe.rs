@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct Maybe<T> {
     r: Option<T>,
 }
@@ -13,14 +14,14 @@ impl<T> Maybe<T> {
         return Maybe::just(Some(r));
     }
 
-    pub fn present(self) -> bool {
-        match self.r {
+    pub fn present(&self) -> bool {
+        match &self.r {
             Some(_x) => return true,
             None => return false,
         }
     }
-    pub fn null(self) -> bool {
-        match self.r {
+    pub fn null(&self) -> bool {
+        match &self.r {
             Some(_x) => return false,
             None => return true,
         }
