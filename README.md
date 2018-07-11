@@ -117,32 +117,35 @@ use fp_rust::monadio::{
 
 // fmap & map (sync)
 let mut _subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<u16>| {
-    println!("Value: {:?}", x); // Value: 36
+    println!("monadioSync {:?}", x); // monadioSync 36
+    assert_eq!(36, *Arc::make_mut(&mut x.clone()));
 }));
 let mut subscription = _subscription.clone();
-let monadioSync = MonadIO::just(1).fmap(|x| MonadIO::new(move || x*4)).map(|x| x*3).map(|x| x*3);
+let monadioSync = MonadIO::just(1)
+    .fmap(|x| MonadIO::new(move || x * 4))
+    .map(|x| x * 3)
+    .map(|x| x * 3);
 monadioSync.subscribe(subscription);
 
 // fmap & map (async)
-let mut _handlerObserveOn = HandlerThread::new();
-let mut _handlerSubscribeOn = HandlerThread::new();
-let monadioAsync = MonadIO::new_with_handlers(|| {
-    String::from("ok")
-  }, Some(_handlerObserveOn.clone()), Some(_handlerSubscribeOn.clone()));
-
-let handlerObserveOn = Arc::make_mut(&mut _handlerObserveOn);
-let handlerSubscribeOn = Arc::make_mut(&mut _handlerSubscribeOn);
+let mut _handlerObserveOn = HandlerThread::new_with_mutex();
+let mut _handlerSubscribeOn = HandlerThread::new_with_mutex();
+let monadioAsync = MonadIO::new_with_handlers(
+    || {
+        println!("In string");
+        String::from("ok")
+    },
+    Some(_handlerObserveOn.clone()),
+    Some(_handlerSubscribeOn.clone()),
+);
 
 let pair = Arc::new((Mutex::new(false), Condvar::new()));
 let pair2 = pair.clone();
 
 thread::sleep(time::Duration::from_millis(100));
 
-handlerObserveOn.start();
-handlerSubscribeOn.start();
-
 let subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
-    println!("Value: {:?}", x); // Value: ok
+    println!("monadioAsync {:?}", x); // monadioAsync ok
 
     let &(ref lock, ref cvar) = &*pair2;
     let mut started = lock.lock().unwrap();
@@ -151,7 +154,21 @@ let subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
     cvar.notify_one(); // Unlock here
 }));
 monadioAsync.subscribe(subscription);
+{
+    let mut handlerObserveOn = _handlerObserveOn.lock().unwrap();
+    let mut handlerSubscribeOn = _handlerSubscribeOn.lock().unwrap();
 
+    println!("hh2");
+    handlerObserveOn.start();
+    handlerSubscribeOn.start();
+    println!("hh2 running");
+
+    handlerObserveOn.post(RawFunc::new(move || {}));
+    handlerObserveOn.post(RawFunc::new(move || {}));
+    handlerObserveOn.post(RawFunc::new(move || {}));
+    handlerObserveOn.post(RawFunc::new(move || {}));
+    handlerObserveOn.post(RawFunc::new(move || {}));
+}
 thread::sleep(time::Duration::from_millis(100));
 
 let &(ref lock, ref cvar) = &*pair;

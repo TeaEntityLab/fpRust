@@ -28,13 +28,16 @@ pub struct HandlerThread {
 }
 
 impl HandlerThread {
-    pub fn new() -> Arc<HandlerThread> {
-        return Arc::new(HandlerThread {
+    pub fn new() -> HandlerThread {
+        return HandlerThread {
             started_alive: Arc::new(Mutex::new((AtomicBool::new(false), AtomicBool::new(false)))),
             inner: Arc::new(HandlerThreadInner::new()),
 
             handle: Arc::new(Mutex::new(None)),
-        });
+        };
+    }
+    pub fn new_with_mutex() -> Arc<Mutex<HandlerThread>> {
+        return Arc::new(Mutex::new(HandlerThread::new()));
     }
 }
 
@@ -73,23 +76,7 @@ impl Handler for HandlerThread {
 
         let _started_alive = self.started_alive.clone();
         self.handle = Arc::new(Mutex::new(Some(thread::spawn(move || {
-            /*
-            let inner : &mut HandlerThreadInner;
-            let inner_temp = Arc::get_mut(&mut _inner);
-            loop {
-                match inner_temp {
-                    Some(_x) => {
-                        inner = _x;
-                        // println!("True");
-                        break;
-                        },
-                    None => {
-                        println!("False");
-                        continue;
-                    }
-                }
-            }
-            */
+
             Arc::make_mut(&mut _inner).start();
 
             {
@@ -204,8 +191,8 @@ impl Handler for HandlerThreadInner {
 fn test_handler_new() {
     use std::{sync::Condvar, time};
 
-    let mut _h = HandlerThread::new();
-    let h = Arc::make_mut(&mut _h);
+    let mut _h = HandlerThread::new_with_mutex();
+    let mut h = _h.lock().unwrap();
 
     println!("is_alive {:?}", h.is_alive());
     println!("is_started {:?}", h.is_started());
@@ -228,10 +215,10 @@ fn test_handler_new() {
 
         let pair3 = pair2.clone();
 
-        let mut _h2 = HandlerThread::new();
+        let mut _h2 = HandlerThread::new_with_mutex();
         let mut _h2_inside = _h2.clone();
 
-        let h2 = Arc::make_mut(&mut _h2);
+        let mut h2 = _h2.lock().unwrap();
         h2.start();
 
         h2.post(RawFunc::new(move || {
@@ -241,7 +228,7 @@ fn test_handler_new() {
 
             cvar.notify_one();
 
-            Arc::make_mut(&mut _h2_inside).stop();
+            // _h2_inside.lock().unwrap().stop();
         }));
     }));
     println!("Test");

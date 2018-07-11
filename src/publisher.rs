@@ -1,13 +1,13 @@
 use common::{Observable, RawFunc, Subscription, SubscriptionFunc};
 use handler::Handler;
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct Publisher<X, T> {
     observers: Vec<Arc<T>>,
 
-    sub_handler: Option<Arc<Handler>>,
+    sub_handler: Option<Arc<Mutex<Handler>>>,
 
     _x: PhantomData<X>,
 }
@@ -20,7 +20,7 @@ impl<X: Send + Sync + 'static + Clone> Publisher<X, SubscriptionFunc<X>> {
         };
     }
     pub fn new_with_handlers(
-        h: Option<Arc<Handler + 'static>>,
+        h: Option<Arc<Mutex<Handler + 'static>>>,
     ) -> Publisher<X, SubscriptionFunc<X>> {
         let mut new_one = Publisher::new();
         new_one.subscribe_on(h);
@@ -38,7 +38,7 @@ impl<X: Send + Sync + 'static + Clone> Publisher<X, SubscriptionFunc<X>> {
         self.subscribe(Arc::new(SubscriptionFunc::new(func)))
     }
 
-    pub fn subscribe_on(&mut self, h: Option<Arc<Handler + 'static>>) {
+    pub fn subscribe_on(&mut self, h: Option<Arc<Mutex<Handler + 'static>>>) {
         self.sub_handler = h;
     }
 }
@@ -76,24 +76,10 @@ impl<X: Send + Sync + 'static + Clone> Observable<X, SubscriptionFunc<X>>
         let mut do_sub_thread_ob = _do_sub.clone();
 
         match sub_handler_thread {
-            Some(ref mut _sub_handler) => {
+            Some(ref mut sub_handler) => {
                 let mut do_sub_thread_sub = _do_sub.clone();
 
-                let sub_handler_option = Arc::get_mut(_sub_handler);
-                let sub_handler;
-                loop {
-                    match sub_handler_option {
-                        Some(x) => {
-                            sub_handler = x;
-                            break;
-                        }
-                        None => {
-                            continue;
-                        }
-                    }
-                }
-
-                sub_handler.post(RawFunc::new(move || {
+                sub_handler.lock().unwrap().post(RawFunc::new(move || {
                     let sub = Arc::make_mut(&mut do_sub_thread_sub);
 
                     (sub)();
@@ -121,19 +107,14 @@ fn test_publisher_new() {
     });
     pub1.publish(9);
 
-    let mut _h = HandlerThread::new();
-    let mut pub2 = Publisher::new_with_handlers(Some(_h.clone()));
+    let mut _h = HandlerThread::new_with_mutex();
 
-    let h = Arc::make_mut(&mut _h);
+    let mut pub2 = Publisher::new_with_handlers(Some(_h.clone()));
 
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair2 = pair.clone();
 
     thread::sleep(time::Duration::from_millis(100));
-
-    println!("hh2");
-    h.start();
-    println!("hh2 running");
 
     let s = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
         println!("pub2-s1 I got {:?}", x);
@@ -149,11 +130,19 @@ fn test_publisher_new() {
         println!("pub2-s2 I got {:?}", x);
     })));
 
-    h.post(RawFunc::new(move || {}));
-    h.post(RawFunc::new(move || {}));
-    h.post(RawFunc::new(move || {}));
-    h.post(RawFunc::new(move || {}));
-    h.post(RawFunc::new(move || {}));
+    {
+        let h = &mut _h.lock().unwrap();
+
+        println!("hh2");
+        h.start();
+        println!("hh2 running");
+
+        h.post(RawFunc::new(move || {}));
+        h.post(RawFunc::new(move || {}));
+        h.post(RawFunc::new(move || {}));
+        h.post(RawFunc::new(move || {}));
+        h.post(RawFunc::new(move || {}));
+    }
 
     pub2.publish(String::from("OKOK"));
     pub2.publish(String::from("OKOK2"));

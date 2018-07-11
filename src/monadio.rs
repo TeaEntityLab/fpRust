@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use handler::Handler;
 
@@ -6,9 +6,9 @@ use common::{RawFunc, Subscription, SubscriptionFunc};
 
 #[derive(Clone)]
 pub struct MonadIO<Y> {
-    effect: Arc<dyn FnMut() -> Y + Send + Sync + 'static>,
-    ob_handler: Option<Arc<Handler>>,
-    sub_handler: Option<Arc<Handler>>,
+    effect: Arc<Mutex<dyn FnMut() -> Y + Send + Sync + 'static>>,
+    ob_handler: Option<Arc<Mutex<Handler>>>,
+    sub_handler: Option<Arc<Mutex<Handler>>>,
 }
 
 pub fn of<Z: 'static + Send + Sync + Clone>(r: Z) -> impl FnMut() -> Z + Send + Sync + 'static {
@@ -31,30 +31,26 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
     }
 
     pub fn new(effect: impl FnMut() -> Y + Send + Sync + 'static) -> MonadIO<Y> {
-        return MonadIO {
-            effect: Arc::new(effect),
-            ob_handler: None,
-            sub_handler: None,
-        };
+        return MonadIO::new_with_handlers(effect, None, None);
     }
 
     pub fn new_with_handlers(
         effect: impl FnMut() -> Y + Send + Sync + 'static,
-        ob: Option<Arc<Handler + 'static>>,
-        sub: Option<Arc<Handler + 'static>>,
+        ob: Option<Arc<Mutex<Handler + 'static>>>,
+        sub: Option<Arc<Mutex<Handler + 'static>>>,
     ) -> MonadIO<Y> {
         return MonadIO {
-            effect: Arc::new(effect),
+            effect: Arc::new(Mutex::new(effect)),
             ob_handler: ob,
             sub_handler: sub,
         };
     }
 
-    pub fn observe_on(mut self, h: Option<Arc<Handler + 'static>>) {
+    pub fn observe_on(mut self, h: Option<Arc<Mutex<Handler + 'static>>>) {
         self.ob_handler = h;
     }
 
-    pub fn subscribe_on(mut self, h: Option<Arc<Handler + 'static>>) {
+    pub fn subscribe_on(mut self, h: Option<Arc<Mutex<Handler + 'static>>>) {
         self.sub_handler = h;
     }
 
@@ -69,19 +65,7 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
             move || {
                 let mut func = _func.clone();
 
-                let effect_option = Arc::get_mut(&mut _effect);
-                let effect;
-                loop {
-                    match effect_option {
-                        Some(x) => {
-                            effect = x;
-                            break;
-                        }
-                        None => {
-                            continue;
-                        }
-                    }
-                }
+                let effect = &mut *_effect.lock().unwrap();
 
                 (Arc::make_mut(&mut func))((effect)())
             },
@@ -99,19 +83,7 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
             let mut func = _func.clone();
             let mut _effect = (Arc::make_mut(&mut func))(y).effect;
 
-            let effect_option = Arc::get_mut(&mut _effect);
-            let effect;
-            loop {
-                match effect_option {
-                    Some(x) => {
-                        effect = x;
-                        break;
-                    }
-                    None => {
-                        continue;
-                    }
-                }
-            }
+            let effect = &mut *_effect.lock().unwrap();
 
             (effect)()
         });
@@ -119,19 +91,7 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
     pub fn subscribe(self, s: Arc<impl Subscription<Y> + Clone>) {
         let mut _effect = self.effect;
         let mut _do_ob = Arc::new(move || {
-            let effect_option = Arc::get_mut(&mut _effect);
-            let effect;
-            loop {
-                match effect_option {
-                    Some(x) => {
-                        effect = x;
-                        break;
-                    }
-                    None => {
-                        continue;
-                    }
-                }
-            }
+            let effect = &mut *_effect.lock().unwrap();
 
             return (effect)();
         });
@@ -141,49 +101,20 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
         });
 
         match self.ob_handler {
-            Some(mut _ob_handler) => {
+            Some(ob_handler) => {
                 let mut sub_handler_thread = Arc::new(self.sub_handler);
-
-                let ob_handler_option = Arc::get_mut(&mut _ob_handler);
-                let ob_handler;
-                loop {
-                    match ob_handler_option {
-                        Some(x) => {
-                            ob_handler = x;
-                            break;
-                        }
-                        None => {
-                            continue;
-                        }
-                    }
-                }
-
-                ob_handler.post(RawFunc::new(move || {
+                ob_handler.lock().unwrap().post(RawFunc::new(move || {
                     let mut do_ob_thread_ob = _do_ob.clone();
                     let mut do_sub_thread_ob = _do_sub.clone();
                     let ob = Arc::make_mut(&mut do_ob_thread_ob);
                     let sub = Arc::make_mut(&mut do_sub_thread_ob);
 
                     match Arc::make_mut(&mut sub_handler_thread) {
-                        Some(ref mut _sub_handler) => {
+                        Some(ref mut sub_handler) => {
                             let mut do_ob_thread_sub = _do_ob.clone();
                             let mut do_sub_thread_sub = _do_sub.clone();
 
-                            let sub_handler_option = Arc::get_mut(_sub_handler);
-                            let sub_handler;
-                            loop {
-                                match sub_handler_option {
-                                    Some(x) => {
-                                        sub_handler = x;
-                                        break;
-                                    }
-                                    None => {
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            sub_handler.post(RawFunc::new(move || {
+                            sub_handler.lock().unwrap().post(RawFunc::new(move || {
                                 let ob = Arc::make_mut(&mut do_ob_thread_sub);
                                 let sub = Arc::make_mut(&mut do_sub_thread_sub);
 
@@ -215,72 +146,78 @@ fn test_monadio_new() {
     use std::sync::{Arc, Condvar, Mutex};
     use std::{thread, time};
 
-    let mut f1 = MonadIO::just(3);
-    // let mut f1 = MonadIO::just(3);
-    assert_eq!(3, (Arc::get_mut(&mut f1.effect).unwrap())());
-    let f2 = f1.map(|x| x * 3);
+    let mut monadio_simple = MonadIO::just(3);
+    // let mut monadio_simple = MonadIO::just(3);
+    {
+        let effect = &mut *monadio_simple.effect.lock().unwrap();
+        assert_eq!(3, (effect)());
+    }
+    let monadio_simple_map = monadio_simple.map(|x| x * 3);
 
-    f2.subscribe_fn(move |x| {
-        println!("f2 {:?}", x);
+    monadio_simple_map.subscribe_fn(move |x| {
+        println!("monadio_simple_map {:?}", x);
         assert_eq!(9, *Arc::make_mut(&mut x.clone()));
     });
 
-    let mut _s = Arc::new(SubscriptionFunc::new(move |x: Arc<u16>| {
-        println!("I'm here {:?}", x);
+    // fmap & map (sync)
+    let mut _subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<u16>| {
+        println!("monadioSync {:?}", x); // monadioSync 36
         assert_eq!(36, *Arc::make_mut(&mut x.clone()));
     }));
-    let mut _s2 = _s.clone();
-    let f3 = MonadIO::new(of(1))
+    let mut subscription = _subscription.clone();
+    let monadioSync = MonadIO::just(1)
         .fmap(|x| MonadIO::new(move || x * 4))
         .map(|x| x * 3)
         .map(|x| x * 3);
-    f3.subscribe(_s2);
+    monadioSync.subscribe(subscription);
 
-    let mut _h = HandlerThread::new();
-    let mut _h2 = HandlerThread::new();
-    let f4 = MonadIO::new_with_handlers(
+    // fmap & map (async)
+    let mut _handlerObserveOn = HandlerThread::new_with_mutex();
+    let mut _handlerSubscribeOn = HandlerThread::new_with_mutex();
+    let monadioAsync = MonadIO::new_with_handlers(
         || {
             println!("In string");
             String::from("ok")
         },
-        Some(_h.clone()),
-        Some(_h2.clone()),
+        Some(_handlerObserveOn.clone()),
+        Some(_handlerSubscribeOn.clone()),
     );
-
-    let h = Arc::make_mut(&mut _h);
-    let h2 = Arc::make_mut(&mut _h2);
 
     let pair = Arc::new((Mutex::new(false), Condvar::new()));
     let pair2 = pair.clone();
 
     thread::sleep(time::Duration::from_millis(100));
 
-    println!("hh2");
-    h.start();
-    h2.start();
-    println!("hh2 running");
-
-    let s = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
-        println!("I got {:?}", x);
+    let subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
+        println!("monadioAsync {:?}", x); // monadioAsync ok
 
         let &(ref lock, ref cvar) = &*pair2;
         let mut started = lock.lock().unwrap();
         *started = true;
 
-        cvar.notify_one();
+        cvar.notify_one(); // Unlock here
     }));
-    f4.subscribe(s);
+    monadioAsync.subscribe(subscription);
+    {
+        let mut handlerObserveOn = _handlerObserveOn.lock().unwrap();
+        let mut handlerSubscribeOn = _handlerSubscribeOn.lock().unwrap();
 
-    h.post(RawFunc::new(move || {}));
-    h.post(RawFunc::new(move || {}));
-    h.post(RawFunc::new(move || {}));
-    h.post(RawFunc::new(move || {}));
-    h.post(RawFunc::new(move || {}));
+        println!("hh2");
+        handlerObserveOn.start();
+        handlerSubscribeOn.start();
+        println!("hh2 running");
 
+        handlerObserveOn.post(RawFunc::new(move || {}));
+        handlerObserveOn.post(RawFunc::new(move || {}));
+        handlerObserveOn.post(RawFunc::new(move || {}));
+        handlerObserveOn.post(RawFunc::new(move || {}));
+        handlerObserveOn.post(RawFunc::new(move || {}));
+    }
     thread::sleep(time::Duration::from_millis(100));
 
     let &(ref lock, ref cvar) = &*pair;
     let mut started = lock.lock().unwrap();
+    // Waiting for being unlcoked
     while !*started {
         started = cvar.wait(started).unwrap();
     }
