@@ -116,32 +116,32 @@ use fp_rust::monadio::{
 };
 
 // fmap & map (sync)
-let mut _s = Arc::new(SubscriptionFunc::new(move |x: Arc<u16>| {
+let mut _subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<u16>| {
     println!("Value: {:?}", x); // Value: 36
 }));
-let mut _s2 = _s.clone();
+let mut subscription = _subscription.clone();
 let monadioSync = MonadIO::new(of(1)).fmap(|x| MonadIO::new(move || x*4)).map(|x| x*3).map(|x| x*3);
-monadioSync.subscribe(_s2);
+monadioSync.subscribe(subscription);
 
 // fmap & map (async)
-let mut _h = HandlerThread::new();
-let mut _h2 = HandlerThread::new();
-let f4 = MonadIO::new_with_handlers(|| {
+let mut _handlerObserveOn = HandlerThread::new();
+let mut _handlerSubscribeOn = HandlerThread::new();
+let monadioAsync = MonadIO::new_with_handlers(|| {
     String::from("ok")
-    }, Some(_h.clone()), Some(_h2.clone()));
+  }, Some(_handlerObserveOn.clone()), Some(_handlerSubscribeOn.clone()));
 
-let h = Arc::make_mut(&mut _h);
-let h2 = Arc::make_mut(&mut _h2);
+let handlerObserveOn = Arc::make_mut(&mut _handlerObserveOn);
+let handlerSubscribeOn = Arc::make_mut(&mut _handlerSubscribeOn);
 
 let pair = Arc::new((Mutex::new(false), Condvar::new()));
 let pair2 = pair.clone();
 
 thread::sleep(time::Duration::from_millis(100));
 
-h.start();
-h2.start();
+handlerObserveOn.start();
+handlerSubscribeOn.start();
 
-let s = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
+let subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
     println!("Value: {:?}", x); // Value: ok
 
     let &(ref lock, ref cvar) = &*pair2;
@@ -150,7 +150,7 @@ let s = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
 
     cvar.notify_one(); // Unlock here
 }));
-f4.subscribe(s);
+monadioAsync.subscribe(subscription);
 
 thread::sleep(time::Duration::from_millis(100));
 
