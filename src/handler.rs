@@ -76,7 +76,6 @@ impl Handler for HandlerThread {
 
         let _started_alive = self.started_alive.clone();
         self.handle = Arc::new(Mutex::new(Some(thread::spawn(move || {
-
             Arc::make_mut(&mut _inner).start();
 
             {
@@ -228,7 +227,9 @@ fn test_handler_new() {
 
             cvar.notify_one();
 
-            // _h2_inside.lock().unwrap().stop();
+            {
+                _h2_inside.lock().unwrap().stop();
+            }
         }));
     }));
     println!("Test");
