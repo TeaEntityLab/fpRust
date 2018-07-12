@@ -10,22 +10,11 @@ documentation = "https://docs.rs/fp_rust/"
 homepage = "https://github.com/TeaEntityLab/fpRust"
 repository = "https://github.com/TeaEntityLab/fpRust"
 keywords=[
-"rust",
 "functional-programming",
-"functional-reactive-programming",
-"reactive",
 "reactive-programming",
-"rust-library",
-"rust-tools",
 "monad",
-"monads",
 "optional",
-"optional-implementations",
-"publisher-subscriber",
-"publisher-subscriber-pattern",
 "pubsub",
-"async",
-"handler",
 ]
 
 [badges.maintenance]
