@@ -11,7 +11,7 @@ homepage = "https://github.com/TeaEntityLab/fpRust"
 repository = "https://github.com/TeaEntityLab/fpRust"
 keywords=[
 "functional-programming",
-"reactive-programming",
+"rx",
 "monad",
 "optional",
 "pubsub",
