@@ -4,10 +4,14 @@ version = "0.1.20"
 license = "MIT"
 authors = ["JunYi JohnTeee Lee <johnteee@gmail.com>"]
 include = ["src/**/*.rs", "Cargo.toml"]
+readme = "README.md"
 description = "Implement fp features for Rust"
-documentation = "https://github.com/TeaEntityLab/fpRust/blob/master/README.md"
+documentation = "https://docs.rs/fp_rust/"
 homepage = "https://github.com/TeaEntityLab/fpRust"
 repository = "https://github.com/TeaEntityLab/fpRust"
+
+[badges.maintenance]
+status = "actively-developed"
 
 [lib]
 name = "fp_rust"
