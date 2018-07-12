@@ -97,8 +97,9 @@ impl<X: Send + Sync + 'static + Clone> Observable<X, SubscriptionFunc<X>>
 fn test_publisher_new() {
     use common::SubscriptionFunc;
     use handler::HandlerThread;
-    use std::sync::{Arc, Condvar, Mutex};
-    use std::{thread, time};
+    use std::sync::Arc;
+
+    use sync::CountDownLatch;
 
     let mut pub1 = Publisher::new();
     pub1.subscribe_fn(|x: Arc<u16>| {
@@ -111,19 +112,13 @@ fn test_publisher_new() {
 
     let mut pub2 = Publisher::new_with_handlers(Some(_h.clone()));
 
-    let pair = Arc::new((Mutex::new(false), Condvar::new()));
-    let pair2 = pair.clone();
-
-    thread::sleep(time::Duration::from_millis(100));
+    let latch = CountDownLatch::new(1);
+    let latch2 = latch.clone();
 
     let s = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
         println!("pub2-s1 I got {:?}", x);
 
-        let &(ref lock, ref cvar) = &*pair2;
-        let mut started = lock.lock().unwrap();
-        *started = true;
-
-        cvar.notify_one();
+        latch2.countdown();
     }));
     pub2.subscribe(s);
     pub2.subscribe(Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
@@ -146,11 +141,6 @@ fn test_publisher_new() {
 
     pub2.publish(String::from("OKOK"));
     pub2.publish(String::from("OKOK2"));
-    thread::sleep(time::Duration::from_millis(100));
 
-    let &(ref lock, ref cvar) = &*pair;
-    let mut started = lock.lock().unwrap();
-    while !*started {
-        started = cvar.wait(started).unwrap();
-    }
+    latch.clone().wait();
 }

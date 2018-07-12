@@ -1,8 +1,55 @@
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    mpsc, Arc, Mutex,
+    mpsc, Arc, Condvar, Mutex,
 };
 use std::time::Duration;
+
+#[derive(Debug, Clone)]
+pub struct CountDownLatch {
+    pair: Arc<(Arc<Mutex<u64>>, Condvar)>,
+}
+
+impl CountDownLatch {
+    pub fn new(count: u64) -> CountDownLatch {
+        return CountDownLatch {
+            pair: Arc::new((Arc::new(Mutex::new(count)), Condvar::new())),
+        };
+    }
+
+    pub fn countdown(&self) {
+        let &(ref lock, ref cvar) = &*self.pair.clone();
+        let mut started = lock.lock().unwrap();
+        if *started > 0 {
+            *started -= 1;
+        }
+        cvar.notify_one();
+    }
+
+    pub fn wait(&self) {
+        let &(ref lock, ref cvar) = &*self.pair.clone();
+
+        /*
+        let mut result = lock.lock();
+        let mut started;
+        if result.is_err() {
+            started = result.err().unwrap().into_inner();
+        } else {
+            started = result.unwrap();
+        }
+        */
+        let mut started = lock.lock().unwrap();
+
+        while *started > 0 {
+            let result = cvar.wait(started);
+
+            if result.is_err() {
+                started = result.err().unwrap().into_inner();
+            } else {
+                started = result.unwrap();
+            }
+        }
+    }
+}
 
 pub trait Queue<T> {
     fn offer(&mut self, v: T);

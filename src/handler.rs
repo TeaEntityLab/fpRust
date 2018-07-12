@@ -188,7 +188,8 @@ impl Handler for HandlerThreadInner {
 
 #[test]
 fn test_handler_new() {
-    use std::{sync::Condvar, time};
+    use std::time;
+    use sync::CountDownLatch;
 
     let mut _h = HandlerThread::new_with_mutex();
     let mut h = _h.lock().unwrap();
@@ -205,14 +206,14 @@ fn test_handler_new() {
     println!("is_alive {:?}", h.is_alive());
     println!("is_started {:?}", h.is_started());
 
-    let pair = Arc::new((Mutex::new(false), Condvar::new()));
-    let pair2 = pair.clone();
+    let latch = CountDownLatch::new(1);
+    let latch2 = latch.clone();
 
     // /*
     h.post(RawFunc::new(move || {
         println!("Executed !");
 
-        let pair3 = pair2.clone();
+        let latch3 = latch2.clone();
 
         let mut _h2 = HandlerThread::new_with_mutex();
         let mut _h2_inside = _h2.clone();
@@ -221,11 +222,7 @@ fn test_handler_new() {
         h2.start();
 
         h2.post(RawFunc::new(move || {
-            let &(ref lock, ref cvar) = &*pair3;
-            let mut started = lock.lock().unwrap();
-            *started = true;
-
-            cvar.notify_one();
+            latch3.countdown();
 
             {
                 _h2_inside.lock().unwrap().stop();
@@ -244,12 +241,5 @@ fn test_handler_new() {
     println!("is_alive {:?}", h.is_alive());
     println!("is_started {:?}", h.is_started());
 
-    // /*
-
-    let &(ref lock, ref cvar) = &*pair;
-    let mut started = lock.lock().unwrap();
-    while !*started {
-        started = cvar.wait(started).unwrap();
-    }
-    // */
+    latch.clone().wait();
 }

@@ -29,6 +29,10 @@ Thus I implemented fpRust. I hope you would like it :)
 * Fp functions
   * Currently only compose!() <- __macro__
 
+* Async
+  * simple BlockingQueue (inspired by *`Java BlockingQueue`*, implemented by built-in *`std::sync::mpsc::channel`*)
+  * HandlerThread (inspired by *`Android Handler`*, implemented by built-in *`std::thread`*)
+
 ~~* Pattern matching~~
 
 ~~* PythonicGenerator-like Coroutine(yield/yieldFrom)~~
@@ -111,69 +115,65 @@ use fp_rust::monadio::{
     MonadIO,
     of,
 };
+use fp_rust::sync::CountDownLatch;
 
 // fmap & map (sync)
 let mut _subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<u16>| {
-    println!("monadioSync {:?}", x); // monadioSync 36
+    println!("monadio_sync {:?}", x); // monadio_sync 36
     assert_eq!(36, *Arc::make_mut(&mut x.clone()));
 }));
-let mut subscription = _subscription.clone();
-let monadioSync = MonadIO::just(1)
+let subscription = _subscription.clone();
+let monadio_sync = MonadIO::just(1)
     .fmap(|x| MonadIO::new(move || x * 4))
     .map(|x| x * 3)
     .map(|x| x * 3);
-monadioSync.subscribe(subscription);
+monadio_sync.subscribe(subscription);
 
 // fmap & map (async)
-let mut _handlerObserveOn = HandlerThread::new_with_mutex();
-let mut _handlerSubscribeOn = HandlerThread::new_with_mutex();
-let monadioAsync = MonadIO::new_with_handlers(
+let mut _handler_observe_on = HandlerThread::new_with_mutex();
+let mut _handler_subscribe_on = HandlerThread::new_with_mutex();
+let monadio_async = MonadIO::new_with_handlers(
     || {
         println!("In string");
         String::from("ok")
     },
-    Some(_handlerObserveOn.clone()),
-    Some(_handlerSubscribeOn.clone()),
+    Some(_handler_observe_on.clone()),
+    Some(_handler_subscribe_on.clone()),
 );
 
-let pair = Arc::new((Mutex::new(false), Condvar::new()));
-let pair2 = pair.clone();
+let latch = CountDownLatch::new(1);
+let latch2 = latch.clone();
 
 thread::sleep(time::Duration::from_millis(100));
 
 let subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
-    println!("monadioAsync {:?}", x); // monadioAsync ok
+    println!("monadio_async {:?}", x); // monadio_async ok
 
-    let &(ref lock, ref cvar) = &*pair2;
-    let mut started = lock.lock().unwrap();
-    *started = true;
-
-    cvar.notify_one(); // Unlock here
+    latch2.countdown(); // Unlock here
 }));
-monadioAsync.subscribe(subscription);
+monadio_async.subscribe(subscription);
+monadio_async.subscribe(Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
+    println!("monadio_async sub2 {:?}", x); // monadio_async sub2 ok
+})));
 {
-    let mut handlerObserveOn = _handlerObserveOn.lock().unwrap();
-    let mut handlerSubscribeOn = _handlerSubscribeOn.lock().unwrap();
+    let mut handler_observe_on = _handler_observe_on.lock().unwrap();
+    let mut handler_subscribe_on = _handler_subscribe_on.lock().unwrap();
 
     println!("hh2");
-    handlerObserveOn.start();
-    handlerSubscribeOn.start();
+    handler_observe_on.start();
+    handler_subscribe_on.start();
     println!("hh2 running");
 
-    handlerObserveOn.post(RawFunc::new(move || {}));
-    handlerObserveOn.post(RawFunc::new(move || {}));
-    handlerObserveOn.post(RawFunc::new(move || {}));
-    handlerObserveOn.post(RawFunc::new(move || {}));
-    handlerObserveOn.post(RawFunc::new(move || {}));
+    handler_observe_on.post(RawFunc::new(move || {}));
+    handler_observe_on.post(RawFunc::new(move || {}));
+    handler_observe_on.post(RawFunc::new(move || {}));
+    handler_observe_on.post(RawFunc::new(move || {}));
+    handler_observe_on.post(RawFunc::new(move || {}));
 }
 thread::sleep(time::Duration::from_millis(100));
 
-let &(ref lock, ref cvar) = &*pair;
-let mut started = lock.lock().unwrap();
 // Waiting for being unlcoked
-while !*started {
-    started = cvar.wait(started).unwrap();
-}
+latch.clone().wait();
 ```
 
 ## Compose

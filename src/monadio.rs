@@ -143,8 +143,10 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
 fn test_monadio_new() {
     use common::SubscriptionFunc;
     use handler::HandlerThread;
-    use std::sync::{Arc, Condvar, Mutex};
+    use std::sync::Arc;
     use std::{thread, time};
+
+    use sync::CountDownLatch;
 
     let monadio_simple = MonadIO::just(3);
     // let mut monadio_simple = MonadIO::just(3);
@@ -183,19 +185,15 @@ fn test_monadio_new() {
         Some(_handler_subscribe_on.clone()),
     );
 
-    let pair = Arc::new((Mutex::new(false), Condvar::new()));
-    let pair2 = pair.clone();
+    let latch = CountDownLatch::new(1);
+    let latch2 = latch.clone();
 
     thread::sleep(time::Duration::from_millis(100));
 
     let subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
         println!("monadio_async {:?}", x); // monadio_async ok
 
-        let &(ref lock, ref cvar) = &*pair2;
-        let mut started = lock.lock().unwrap();
-        *started = true;
-
-        cvar.notify_one(); // Unlock here
+        latch2.countdown(); // Unlock here
     }));
     monadio_async.subscribe(subscription);
     monadio_async.subscribe(Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
@@ -218,10 +216,6 @@ fn test_monadio_new() {
     }
     thread::sleep(time::Duration::from_millis(100));
 
-    let &(ref lock, ref cvar) = &*pair;
-    let mut started = lock.lock().unwrap();
     // Waiting for being unlcoked
-    while !*started {
-        started = cvar.wait(started).unwrap();
-    }
+    latch.clone().wait();
 }
