@@ -55,11 +55,11 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
     }
 
     pub fn map<Z: 'static + Send + Sync + Clone>(
-        self,
+        &self,
         func: impl FnMut(Y) -> Z + Send + Sync + 'static + Clone,
     ) -> MonadIO<Z> {
         let _func = Arc::new(func);
-        let mut _effect = self.effect;
+        let mut _effect = self.clone().effect;
 
         return MonadIO::new_with_handlers(
             move || {
@@ -69,12 +69,12 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
 
                 (Arc::make_mut(&mut func))((effect)())
             },
-            self.ob_handler,
-            self.sub_handler,
+            self.clone().ob_handler,
+            self.clone().sub_handler,
         );
     }
     pub fn fmap<Z: 'static + Send + Sync + Clone>(
-        self,
+        &self,
         func: impl FnMut(Y) -> MonadIO<Z> + Send + Sync + 'static + Clone,
     ) -> MonadIO<Z> {
         let mut _func = Arc::new(func);

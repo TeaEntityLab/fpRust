@@ -80,7 +80,7 @@ impl<T> RawReceiver<T> {
         };
     }
 
-    pub fn invoke(&mut self, x: Arc<T>) {
+    pub fn invoke(&self, x: Arc<T>) {
         let func = &mut *self.func.lock().unwrap();
         (func)(x);
     }
@@ -101,7 +101,7 @@ impl RawFunc {
         };
     }
 
-    pub fn invoke(self) {
+    pub fn invoke(&self) {
         let func = &mut *self.func.lock().unwrap();
         (func)();
     }

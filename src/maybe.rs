@@ -3,7 +3,7 @@ pub struct Maybe<T> {
     r: Option<T>,
 }
 
-impl<T> Maybe<T> {
+impl<T : Clone> Maybe<T> {
     pub fn just(r: Option<T>) -> Maybe<T> {
         return Maybe { r: r };
     }
@@ -36,51 +36,55 @@ impl<T> Maybe<T> {
         }
     }
 
-    pub fn fmap<F, G>(self, func: F) -> Maybe<G>
+    pub fn fmap<F, G>(&self, func: F) -> Maybe<G>
     where
         F: FnOnce(Option<T>) -> Maybe<G>,
     {
-        return func(self.r);
+        return func(self.clone().r);
     }
-    pub fn map<F, G>(self, func: F) -> Maybe<G>
+    pub fn map<F, G>(&self, func: F) -> Maybe<G>
     where
         F: FnOnce(Option<T>) -> Option<G>,
+        G: Clone,
     {
-        return Maybe::just(func(self.r));
+        return Maybe::just(func(self.r.clone()));
     }
-    pub fn bind<F, G>(self, func: F) -> Maybe<G>
+    pub fn bind<F, G>(&self, func: F) -> Maybe<G>
     where
         F: FnOnce(Option<T>) -> Option<G>,
-    {
-        return self.map(func);
-    }
-    pub fn then<F, G>(self, func: F) -> Maybe<G>
-    where
-        F: FnOnce(Option<T>) -> Option<G>,
+        G: Clone,
     {
         return self.map(func);
     }
-    pub fn chain<F, G>(self, func: F) -> Maybe<G>
+    pub fn then<F, G>(&self, func: F) -> Maybe<G>
+    where
+        F: FnOnce(Option<T>) -> Option<G>,
+        G: Clone,
+    {
+        return self.map(func);
+    }
+    pub fn chain<F, G>(&self, func: F) -> Maybe<G>
     where
         F: FnOnce(Option<T>) -> Maybe<G>,
     {
         return self.fmap(func);
     }
-    pub fn ap<F, G>(self, maybe_func: Maybe<F>) -> Maybe<G>
+    pub fn ap<F, G>(&self, maybe_func: Maybe<F>) -> Maybe<G>
     where
-        F: FnOnce(Option<T>) -> Option<G>,
+        F: FnOnce(Option<T>) -> Option<G> + Clone,
+        G: Clone,
     {
         return maybe_func.chain(|f| self.map(f.unwrap()));
     }
 
-    pub fn option(self) -> Option<T> {
-        return self.r;
+    pub fn option(&self) -> Option<T> {
+        return self.r.clone();
     }
-    pub fn unwrap(self) -> T {
-        return self.r.unwrap();
+    pub fn unwrap(&self) -> T {
+        return self.r.clone().unwrap();
     }
-    pub fn or(self, val: T) -> T {
-        return self.r.unwrap_or(val);
+    pub fn or(&self, val: T) -> T {
+        return self.r.clone().unwrap_or(val);
     }
 }
 
