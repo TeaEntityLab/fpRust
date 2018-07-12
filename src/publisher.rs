@@ -31,11 +31,28 @@ impl<X: Send + Sync + 'static + Clone> Publisher<X, SubscriptionFunc<X>> {
         self.notify_observers(Arc::new(val));
     }
 
-    pub fn subscribe(&mut self, s: Arc<SubscriptionFunc<X>>) {
-        self.add_observer(s);
+    pub fn subscribe(&mut self, s: Arc<SubscriptionFunc<X>>) -> Arc<SubscriptionFunc<X>> {
+        self.add_observer(s.clone());
+        s
     }
-    pub fn subscribe_fn(&mut self, func: impl FnMut(Arc<X>) + Send + Sync + 'static) {
+    pub fn subscribe_fn(
+        &mut self,
+        func: impl FnMut(Arc<X>) + Send + Sync + 'static,
+    ) -> Arc<SubscriptionFunc<X>> {
         self.subscribe(Arc::new(SubscriptionFunc::new(func)))
+    }
+    pub fn map<Z: Send + Sync + 'static + Clone>(
+        &mut self,
+        func: impl FnMut(Arc<X>) -> Z + Send + Sync + 'static + Clone,
+    ) -> Arc<SubscriptionFunc<X>> {
+        let _func = Arc::new(func);
+        self.subscribe_fn(move |x: Arc<X>| {
+            let mut func = _func.clone();
+            (Arc::make_mut(&mut func))(x);
+        })
+    }
+    pub fn unsubscribe(&mut self, s: Arc<SubscriptionFunc<X>>) {
+        self.delete_observer(s);
     }
 
     pub fn subscribe_on(&mut self, h: Option<Arc<Mutex<Handler + 'static>>>) {
@@ -121,9 +138,9 @@ fn test_publisher_new() {
         latch2.countdown();
     }));
     pub2.subscribe(s);
-    pub2.subscribe(Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
+    pub2.map(move |x: Arc<String>| {
         println!("pub2-s2 I got {:?}", x);
-    })));
+    });
 
     {
         let h = &mut _h.lock().unwrap();
