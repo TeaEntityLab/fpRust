@@ -176,6 +176,64 @@ thread::sleep(time::Duration::from_millis(100));
 latch.clone().wait();
 ```
 
+## Publisher (PubSub-like)
+
+Example:
+```rust
+
+extern crate fp_rust;
+
+use fp_rust::common::{SubscriptionFunc, RawFunc};
+use fp_rust::handler::{Handler, HandlerThread};
+use fp_rust::publisher::Publisher;
+use std::sync::Arc;
+
+use fp_rust::sync::CountDownLatch;
+
+let mut pub1 = Publisher::new();
+pub1.subscribe_fn(|x: Arc<u16>| {
+    println!("pub1 {:?}", x);
+    assert_eq!(9, *Arc::make_mut(&mut x.clone()));
+});
+pub1.publish(9);
+
+let mut _h = HandlerThread::new_with_mutex();
+
+let mut pub2 = Publisher::new_with_handlers(Some(_h.clone()));
+
+let latch = CountDownLatch::new(1);
+let latch2 = latch.clone();
+
+let s = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
+    println!("pub2-s1 I got {:?}", x);
+
+    latch2.countdown();
+}));
+pub2.subscribe(s);
+pub2.map(move |x: Arc<String>| {
+    println!("pub2-s2 I got {:?}", x);
+});
+
+{
+    let h = &mut _h.lock().unwrap();
+
+    println!("hh2");
+    h.start();
+    println!("hh2 running");
+
+    h.post(RawFunc::new(move || {}));
+    h.post(RawFunc::new(move || {}));
+    h.post(RawFunc::new(move || {}));
+    h.post(RawFunc::new(move || {}));
+    h.post(RawFunc::new(move || {}));
+}
+
+pub2.publish(String::from("OKOK"));
+pub2.publish(String::from("OKOK2"));
+
+latch.clone().wait();
+```
+
 ## Compose
 
 Example:
