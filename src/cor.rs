@@ -26,7 +26,7 @@ impl<'a, X: Send + Sync + Clone + 'static> Cor<'a, X> {
     pub fn new(effect: impl FnMut(&'a mut Cor<'a, X>) + Send + Sync + 'static) -> Cor<'a, X> {
         let (op_ch_sender, op_ch_receiver) = channel();
         let (result_ch_sender, result_ch_receiver) = channel();
-        return Cor {
+        Cor {
             started_alive: Arc::new(Mutex::new((AtomicBool::new(false), AtomicBool::new(false)))),
 
             op_ch_sender: Arc::new(Mutex::new(op_ch_sender)),
@@ -35,10 +35,10 @@ impl<'a, X: Send + Sync + Clone + 'static> Cor<'a, X> {
             result_ch_receiver: Arc::new(Mutex::new(result_ch_receiver)),
 
             effect: Arc::new(Mutex::new(effect)),
-        };
+        }
     }
     pub fn new_with_mutex(effect: impl FnMut(&'a mut Cor<'a, X>) + Send + Sync + 'static) -> Arc<Mutex<Cor<'a, X>>> {
-        return Arc::new(Mutex::new(<Cor<'a, X>>::new(effect)));
+        Arc::new(Mutex::new(<Cor<'a, X>>::new(effect)))
     }
 
     pub fn yield_from(
@@ -225,7 +225,9 @@ impl<'a, X: Send + Sync + Clone + 'static> Cor<'a, X> {
 }
 #[test]
 fn test_cor_new() {
-    let _cor1 = <Cor<String>>::new_with_mutex(|_this| {});
+    // let _cor1 = <Cor<String>>::new_with_mutex(|_this| {});
     // let cor1 = _cor1.lock().unwrap();
+    // _cor1.start();
+    let _cor1 = <Cor<String>>::new(|_this| {});
     // _cor1.start();
 }
