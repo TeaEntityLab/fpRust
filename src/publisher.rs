@@ -27,7 +27,7 @@ impl<X: Send + Sync + 'static + Clone> Publisher<X, SubscriptionFunc<X>> {
         return new_one;
     }
 
-    fn publish(&mut self, val: X) {
+    pub fn publish(&mut self, val: X) {
         self.notify_observers(Arc::new(val));
     }
 
