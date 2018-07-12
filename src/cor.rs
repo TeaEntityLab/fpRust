@@ -3,7 +3,7 @@ use std::sync::{
     mpsc::{channel, Receiver, Sender},
     Arc, Mutex,
 };
-use std::thread;
+// use std::thread;
 
 pub struct CorOp<'a, X: 'a> {
     pub cor: &'a mut Cor<'a, X>,
@@ -20,10 +20,10 @@ pub struct Cor<'a, X: 'a> {
     result_ch_sender: Arc<Mutex<Sender<Option<X>>>>,
     result_ch_receiver: Arc<Mutex<Receiver<Option<X>>>>,
 
-    effect: Arc<Mutex<FnMut() + Send + Sync + 'static>>,
+    effect: Arc<Mutex<FnMut(&'a mut Cor<'a, X>) + Send + Sync + 'static>>,
 }
-impl<'a, X: Send + Sync + Clone> Cor<'a, X> {
-    pub fn new(effect: impl FnMut() + Send + Sync + 'static) -> Cor<'a, X> {
+impl<'a, X: Send + Sync + Clone + 'static> Cor<'a, X> {
+    pub fn new(effect: impl FnMut(&'a mut Cor<'a, X>) + Send + Sync + 'static) -> Cor<'a, X> {
         let (op_ch_sender, op_ch_receiver) = channel();
         let (result_ch_sender, result_ch_receiver) = channel();
         return Cor {
@@ -37,7 +37,7 @@ impl<'a, X: Send + Sync + Clone> Cor<'a, X> {
             effect: Arc::new(Mutex::new(effect)),
         };
     }
-    pub fn new_with_mutex(effect: impl FnMut() + Send + Sync + 'static) -> Arc<Mutex<Cor<'a, X>>> {
+    pub fn new_with_mutex(effect: impl FnMut(&'a mut Cor<'a, X>) + Send + Sync + 'static) -> Arc<Mutex<Cor<'a, X>>> {
         return Arc::new(Mutex::new(<Cor<'a, X>>::new(effect)));
     }
 
@@ -113,7 +113,7 @@ impl<'a, X: Send + Sync + Clone> Cor<'a, X> {
         return alive.load(Ordering::SeqCst);
     }
 
-    pub fn start(&mut self) {
+    pub fn start(&'a mut self) {
         {
             let _started_alive = self.started_alive.clone();
             let started_alive = _started_alive.lock().unwrap();
@@ -129,18 +129,30 @@ impl<'a, X: Send + Sync + Clone> Cor<'a, X> {
             let _started_alive = self.started_alive.clone();
 
             let mut _effect = self.effect.clone();
-            thread::spawn(move || {
-                {
-                    let effect = &mut *_effect.lock().unwrap();
-                    (effect)();
-                }
 
-                {
-                    let started_alive = _started_alive.lock().unwrap();
-                    let &(_, ref alive) = &*started_alive;
-                    alive.store(false, Ordering::SeqCst);
-                }
-            });
+            {
+                let effect = &mut *_effect.lock().unwrap();
+                (effect)(self);
+            }
+
+            {
+                let started_alive = _started_alive.lock().unwrap();
+                let &(_, ref alive) = &*started_alive;
+                alive.store(false, Ordering::SeqCst);
+            }
+
+            // thread::spawn(move || {
+            //     {
+            //         let effect = &mut *_effect.lock().unwrap();
+            //         (effect)(self);
+            //     }
+            //
+            //     {
+            //         let started_alive = _started_alive.lock().unwrap();
+            //         let &(_, ref alive) = &*started_alive;
+            //         alive.store(false, Ordering::SeqCst);
+            //     }
+            // });
         }
     }
 
@@ -213,5 +225,7 @@ impl<'a, X: Send + Sync + Clone> Cor<'a, X> {
 }
 #[test]
 fn test_cor_new() {
-    let _cor1 = <Cor<String>>::new_with_mutex(|| {});
+    let _cor1 = <Cor<String>>::new_with_mutex(|_this| {});
+    // let cor1 = _cor1.lock().unwrap();
+    // _cor1.start();
 }
