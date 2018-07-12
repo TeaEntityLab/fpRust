@@ -9,13 +9,7 @@ description = "Implement fp features for Rust"
 documentation = "https://docs.rs/fp_rust/"
 homepage = "https://github.com/TeaEntityLab/fpRust"
 repository = "https://github.com/TeaEntityLab/fpRust"
-keywords=[
-"functional-programming",
-"rx",
-"monad",
-"optional",
-"pubsub",
-]
+keywords = ["functional-programming","rx","monad","optional","pubsub"]
 
 [badges.maintenance]
 status = "actively-developed"
