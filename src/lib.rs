@@ -1,3 +1,4 @@
+pub mod cor;
 pub mod fp;
 pub mod handler;
 pub mod maybe;
