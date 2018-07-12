@@ -38,6 +38,82 @@ impl<X: Send + Sync + 'static + Clone> Cor<X> {
             effect: Arc::new(Mutex::new(effect)),
         };
     }
+    pub fn new_with_mutex(effect: impl FnMut() + Send + Sync + 'static) -> Arc<Mutex<Cor<X>>> {
+        return Arc::new(Mutex::new(<Cor<X>>::new(effect)));
+    }
+
+    pub fn yield_from(
+        this: Arc<Mutex<Cor<X>>>,
+        target: Arc<Mutex<Cor<X>>>,
+        given_to_outside: Option<X>,
+    ) -> Option<X> {
+        let _result_ch_receiver;
+
+        // `me` MutexGuard lifetime block
+        {
+            let mut me = this.lock().unwrap();
+            if !me.is_alive() {
+                return None;
+            }
+            _result_ch_receiver = me.result_ch_receiver.clone();
+        }
+
+        // target MutexGuard lifetime block
+        {
+            target
+                .lock()
+                .unwrap()
+                .receive(this.clone(), given_to_outside);
+
+            let result = _result_ch_receiver.lock().unwrap().recv();
+
+            match result.ok() {
+                Some(_x) => {
+                    return _x;
+                }
+                None => {}
+            }
+        }
+
+        return None;
+    }
+
+    pub fn yield_none(this: Arc<Mutex<Cor<X>>>) -> Option<X> {
+        return Cor::yield_ref(this, None);
+    }
+
+    pub fn yield_ref(this: Arc<Mutex<Cor<X>>>, given_to_outside: Option<X>) -> Option<X> {
+        let _op_ch_receiver;
+
+        {
+            let mut me = this.lock().unwrap();
+            if !me.is_alive() {
+                return None;
+            }
+            _op_ch_receiver = me.op_ch_receiver.clone();
+        }
+
+        let op;
+        {
+            let op_ch = &*_op_ch_receiver.lock().unwrap();
+            op = op_ch.recv();
+        }
+
+        match op.ok() {
+            Some(_x) => {
+                {
+                    let cor_other = &mut *_x.cor.lock().unwrap();
+                    cor_other.offer(given_to_outside);
+                }
+
+                return _x.val;
+            }
+            None => {}
+        }
+
+        return None;
+    }
+
     pub fn is_started(&mut self) -> bool {
         let _started_alive = self.started_alive.clone();
         let started_alive = _started_alive.lock().unwrap();
@@ -104,60 +180,6 @@ impl<X: Send + Sync + 'static + Clone> Cor<X> {
         }
     }
 
-    pub fn yield_none(&mut self) -> Option<X> {
-        return self.yield_ref(None);
-    }
-
-    pub fn yield_ref(&mut self, given_to_outside: Option<X>) -> Option<X> {
-        if !self.is_alive() {
-            return None;
-        }
-
-        let op;
-        {
-            let op_ch = &*self.op_ch_receiver.lock().unwrap();
-            op = op_ch.recv();
-        }
-
-        match op.ok() {
-            Some(_x) => {
-                {
-                    let cor_other = &mut *_x.cor.lock().unwrap();
-                    cor_other.offer(given_to_outside);
-                }
-
-                return _x.val;
-            }
-            None => {}
-        }
-
-        return None;
-    }
-
-    pub fn yield_from(mut self, target: Arc<Mutex<Cor<X>>>, given_to_outside: Option<X>) -> Option<X> {
-        if !self.is_alive() {
-            return None;
-        }
-
-        {
-            let _result_ch_receiver = self.result_ch_receiver.clone();
-
-            let this = Arc::new(Mutex::new(self));
-            target.lock().unwrap().receive(this, given_to_outside);
-
-            let result = _result_ch_receiver.lock().unwrap().recv();
-
-            match result.ok() {
-                Some(_x) => {
-                    return _x;
-                }
-                None => {}
-            }
-        }
-
-        return None;
-    }
-
     fn receive(&mut self, cor: Arc<Mutex<Cor<X>>>, given_as_request: Option<X>) {
         let _op_ch_sender = self.op_ch_sender.clone();
         let _given_as_request = Box::new(given_as_request);
@@ -193,4 +215,8 @@ impl<X: Send + Sync + 'static + Clone> Cor<X> {
             (effect)();
         }
     }
+}
+#[test]
+fn test_cor_new() {
+    let cor1 = <Cor<String>>::new_with_mutex(|| {});
 }
