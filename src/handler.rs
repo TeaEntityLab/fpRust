@@ -105,17 +105,15 @@ impl Handler for HandlerThread {
             alive.store(false, Ordering::SeqCst);
         }
 
-        if !self.is_alive() {
-            return;
-        }
         Arc::make_mut(&mut self.inner).stop();
 
-        let mut handle = self.handle.lock().unwrap();
-        handle
-            .take()
-            .expect("Called stop on non-running thread")
-            .join()
-            .expect("Could not join spawned thread");
+        // NOTE: Kill thread <- OS depending
+        // let mut handle = self.handle.lock().unwrap();
+        // handle
+        //     .take()
+        //     .expect("Called stop on non-running thread")
+        //     .join()
+        //     .expect("Could not join spawned thread");
     }
 
     fn post(&mut self, func: RawFunc) {
