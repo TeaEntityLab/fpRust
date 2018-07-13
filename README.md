@@ -204,23 +204,22 @@ use fp_rust::cor::Cor;
 
 println!("test_cor_new");
 
-let _cor1 = <Cor<String>>::new_with_mutex(|cor1| {
+let _cor1 = <Cor<String>>::new_with_mutex(|this| {
     println!("cor1 started");
 
-    let s = Cor::yield_ref(cor1.clone(), Some(String::from("given_to_outside")));
+    let s = Cor::yield_ref(this.clone(), Some(String::from("given_to_outside")));
     println!("cor1 {:?}", s);
 });
 let cor1 = _cor1.clone();
 
-let _cor2 = <Cor<String>>::new_with_mutex(move |cor2| {
+let _cor2 = <Cor<String>>::new_with_mutex(move |this| {
     println!("cor2 started");
 
     println!("cor2 yield_from before");
 
-    let s = Cor::yield_from(cor2.clone(), cor1.clone(), Some(String::from("3")));
+    let s = Cor::yield_from(this.clone(), cor1.clone(), Some(String::from("3")));
     println!("cor2 {:?}", s);
 });
-let cor2 = _cor2.clone();
 
 {
     let cor1 = _cor1.clone();
