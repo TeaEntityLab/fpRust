@@ -20,18 +20,21 @@ Thus I implemented fpRust. I hope you would like it :)
 
 # Features
 
-* Monad, Rx-like
+* MonadIO, Rx-like (*`fp_rust::monadio::MonadIO`*)
+  * map/fmap/subscribe
+  * async/sync
 
-* Publisher
+* Publisher (*`fp_rust::publisher::Publisher`*)
 
-* Fp functions
+* Fp functions (*`fp_rust::fp`*)
   * Currently only compose!() <- __macro__
 
-* Async
+* Async (*`fp_rust::sync`* & *`fp_rust::handler::HandlerThread`*)
   * simple BlockingQueue (inspired by *`Java BlockingQueue`*, implemented by built-in *`std::sync::mpsc::channel`*)
   * HandlerThread (inspired by *`Android Handler`*, implemented by built-in *`std::thread`*)
+  * CountDownLatch (inspired by *`Java CountDownLatch`*, implemented by built-in *`std::sync::Mutex`*)
 
-* Cor
+* Cor (*`fp_rust::cor::Cor`*)
   * PythonicGenerator-like Coroutine
   * yield/yieldFrom
   * async/sync
