@@ -20,8 +20,6 @@ Thus I implemented fpRust. I hope you would like it :)
 
 # Features
 
-* Optional/Maybe (a wrapper to built-in Option<T>, to make it more like a monad version *`Maybe`*)
-
 * Monad, Rx-like
 
 * Publisher
@@ -43,55 +41,6 @@ Thus I implemented fpRust. I hope you would like it :)
 
 
 # Usage
-
-## Optional (IsPresent/IsNil, Or, Let)
-
-```rust
-extern crate fp_rust;
-
-use fp_rust::maybe::Maybe;
-
-// fmap & map (sync)
-Maybe::val(true).fmap(|x| {return Maybe::val(!x.unwrap())}).unwrap(); // false
-Maybe::val(false).fmap(|x| {return Maybe::val(!x.unwrap())}).unwrap(); // true
-
-Maybe::val(true).map(|x| {return Some(!x.unwrap())}).unwrap(); // false
-Maybe::val(false).map(|x| {return Some(!x.unwrap())}).unwrap(); // true
-
-// fantasy-land: Apply ap()
-Maybe::val(1).ap(
-   Maybe::val(|x: Option<i16>| {
-       if x.unwrap() > 0 {
-           return Some(true)
-       } else {
-           return Some(false)
-       }
-   })
-).unwrap(); // true
-
-// or
-Maybe::just(None::<bool>).or(false); // false
-Maybe::val(true).or(false); // true
-
-// unwrap
-Maybe::val(true).unwrap(); //true
-
-use std::panic;
-let none_unwrap = panic::catch_unwind(|| {
-    Maybe::just(None::<bool>).unwrap();
-});
-none_unwrap.is_err(); //true
-
-// Get raw Option<T>
-let v = match Maybe::val(true).option() {
-    None => false,
-    Some(_x) => true,
-}; // true
-let v = match Maybe::just(None::<bool>).option() {
-    None => false,
-    Some(_x) => true,
-}; // false
-```
 
 ## MonadIO (RxObserver-like)
 
