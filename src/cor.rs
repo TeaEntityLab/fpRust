@@ -3,27 +3,27 @@ use std::sync::{
     mpsc::{channel, Receiver, Sender},
     Arc, Mutex,
 };
-// use std::thread;
+use std::thread;
 
-pub struct CorOp<'a, X: 'a> {
-    pub cor: &'a mut Cor<'a, X>,
+pub struct CorOp<X: 'static> {
+    pub cor: Arc<Mutex<Cor<X>>>,
     pub val: Option<X>,
 }
-impl<'a, X: Send + Sync + Clone> CorOp<'a, X> {}
+impl<X: Send + Sync + Clone> CorOp<X> {}
 
 #[derive(Clone)]
-pub struct Cor<'a, X: 'a> {
+pub struct Cor<X: 'static> {
     started_alive: Arc<Mutex<(AtomicBool, AtomicBool)>>,
 
-    op_ch_sender: Arc<Mutex<Sender<CorOp<'a, X>>>>,
-    op_ch_receiver: Arc<Mutex<Receiver<CorOp<'a, X>>>>,
+    op_ch_sender: Arc<Mutex<Sender<CorOp<X>>>>,
+    op_ch_receiver: Arc<Mutex<Receiver<CorOp<X>>>>,
     result_ch_sender: Arc<Mutex<Sender<Option<X>>>>,
     result_ch_receiver: Arc<Mutex<Receiver<Option<X>>>>,
 
-    effect: Arc<Mutex<FnMut(&'a mut Cor<'a, X>) + Send + Sync + 'static>>,
+    effect: Arc<Mutex<FnMut(Arc<Mutex<Cor<X>>>) + Send + Sync + 'static>>,
 }
-impl<'a, X: Send + Sync + Clone + 'static> Cor<'a, X> {
-    pub fn new(effect: impl FnMut(&'a mut Cor<'a, X>) + Send + Sync + 'static) -> Cor<'a, X> {
+impl<X: Send + Sync + Clone + 'static> Cor<X> {
+    pub fn new(effect: impl FnMut(Arc<Mutex<Cor<X>>>) + Send + Sync + 'static) -> Cor<X> {
         let (op_ch_sender, op_ch_receiver) = channel();
         let (result_ch_sender, result_ch_receiver) = channel();
         Cor {
@@ -37,23 +37,35 @@ impl<'a, X: Send + Sync + Clone + 'static> Cor<'a, X> {
             effect: Arc::new(Mutex::new(effect)),
         }
     }
-    pub fn new_with_mutex(effect: impl FnMut(&'a mut Cor<'a, X>) + Send + Sync + 'static) -> Arc<Mutex<Cor<'a, X>>> {
-        Arc::new(Mutex::new(<Cor<'a, X>>::new(effect)))
+    pub fn new_with_mutex(
+        effect: impl FnMut(Arc<Mutex<Cor<X>>>) + Send + Sync + 'static,
+    ) -> Arc<Mutex<Cor<X>>> {
+        Arc::new(Mutex::new(<Cor<X>>::new(effect)))
     }
 
     pub fn yield_from(
-        &'a mut self,
-        target: Arc<Mutex<Cor<'a, X>>>,
+        this: Arc<Mutex<Cor<X>>>,
+        target: Arc<Mutex<Cor<X>>>,
         given_to_outside: Option<X>,
     ) -> Option<X> {
-        if !self.is_alive() {
-            return None;
+        let _result_ch_receiver;
+
+        // me MutexGuard lifetime block
+        {
+            let _me = this.clone();
+            let mut me = _me.lock().unwrap();
+            if !me.is_alive() {
+                return None;
+            }
+            _result_ch_receiver = me.result_ch_receiver.clone();
         }
-        let _result_ch_receiver = self.result_ch_receiver.clone();
 
         // target MutexGuard lifetime block
         {
-            target.lock().unwrap().receive(self, given_to_outside);
+            target
+                .lock()
+                .unwrap()
+                .receive(this.clone(), given_to_outside);
 
             let result = _result_ch_receiver.lock().unwrap().recv();
 
@@ -68,15 +80,21 @@ impl<'a, X: Send + Sync + Clone + 'static> Cor<'a, X> {
         return None;
     }
 
-    pub fn yield_none(&'a mut self) -> Option<X> {
-        return Cor::yield_ref(self, None);
+    pub fn yield_none(this: Arc<Mutex<Cor<X>>>) -> Option<X> {
+        return Cor::yield_ref(this, None);
     }
 
-    pub fn yield_ref(&'a mut self, given_to_outside: Option<X>) -> Option<X> {
-        if !self.is_alive() {
-            return None;
+    pub fn yield_ref(this: Arc<Mutex<Cor<X>>>, given_to_outside: Option<X>) -> Option<X> {
+        let _op_ch_receiver;
+        // me MutexGuard lifetime block
+        {
+            let _me = this.clone();
+            let mut me = _me.lock().unwrap();
+            if !me.is_alive() {
+                return None;
+            }
+            _op_ch_receiver = me.op_ch_receiver.clone();
         }
-        let _op_ch_receiver = self.op_ch_receiver.clone();
 
         let op;
         {
@@ -87,7 +105,7 @@ impl<'a, X: Send + Sync + Clone + 'static> Cor<'a, X> {
         match op.ok() {
             Some(_x) => {
                 {
-                    let cor_other = _x.cor;
+                    let mut cor_other = _x.cor.lock().unwrap();
                     cor_other.offer(given_to_outside);
                 }
 
@@ -97,6 +115,57 @@ impl<'a, X: Send + Sync + Clone + 'static> Cor<'a, X> {
         }
 
         return None;
+    }
+
+    pub fn start(this: Arc<Mutex<Cor<X>>>) {
+        {
+            let _me = this.clone();
+            let me = _me.lock().unwrap();
+            let _started_alive = me.started_alive.clone();
+            let started_alive = _started_alive.lock().unwrap();
+            let &(ref started, ref alive) = &*started_alive;
+            if (!alive.load(Ordering::SeqCst)) || started.load(Ordering::SeqCst) {
+                return;
+            }
+            started.store(true, Ordering::SeqCst);
+            alive.store(true, Ordering::SeqCst);
+        }
+
+        {
+            let _started_alive;
+            let mut _effect;
+
+            {
+                let _me = this.clone();
+                let me = _me.lock().unwrap();
+                _started_alive = me.started_alive.clone();
+                _effect = me.effect.clone();
+            }
+
+            // {
+            //     let effect = &mut *_effect.lock().unwrap();
+            //     (effect)(self);
+            // }
+
+            {
+                let started_alive = _started_alive.lock().unwrap();
+                let &(_, ref alive) = &*started_alive;
+                alive.store(false, Ordering::SeqCst);
+            }
+
+            thread::spawn(move || {
+                {
+                    let effect = &mut *_effect.lock().unwrap();
+                    (effect)(this.clone());
+                }
+
+                {
+                    let started_alive = _started_alive.lock().unwrap();
+                    let &(_, ref alive) = &*started_alive;
+                    alive.store(false, Ordering::SeqCst);
+                }
+            });
+        }
     }
 
     pub fn is_started(&mut self) -> bool {
@@ -111,49 +180,6 @@ impl<'a, X: Send + Sync + Clone + 'static> Cor<'a, X> {
         let started_alive = _started_alive.lock().unwrap();
         let &(_, ref alive) = &*started_alive;
         return alive.load(Ordering::SeqCst);
-    }
-
-    pub fn start(&'a mut self) {
-        {
-            let _started_alive = self.started_alive.clone();
-            let started_alive = _started_alive.lock().unwrap();
-            let &(ref started, ref alive) = &*started_alive;
-            if (!alive.load(Ordering::SeqCst)) || started.load(Ordering::SeqCst) {
-                return;
-            }
-            started.store(true, Ordering::SeqCst);
-            alive.store(true, Ordering::SeqCst);
-        }
-
-        {
-            let _started_alive = self.started_alive.clone();
-
-            let mut _effect = self.effect.clone();
-
-            {
-                let effect = &mut *_effect.lock().unwrap();
-                (effect)(self);
-            }
-
-            {
-                let started_alive = _started_alive.lock().unwrap();
-                let &(_, ref alive) = &*started_alive;
-                alive.store(false, Ordering::SeqCst);
-            }
-
-            // thread::spawn(move || {
-            //     {
-            //         let effect = &mut *_effect.lock().unwrap();
-            //         (effect)(self);
-            //     }
-            //
-            //     {
-            //         let started_alive = _started_alive.lock().unwrap();
-            //         let &(_, ref alive) = &*started_alive;
-            //         alive.store(false, Ordering::SeqCst);
-            //     }
-            // });
-        }
     }
 
     pub fn stop(&mut self) {
@@ -177,7 +203,7 @@ impl<'a, X: Send + Sync + Clone + 'static> Cor<'a, X> {
         }
     }
 
-    fn receive(&mut self, cor: &'a mut Cor<'a, X>, given_as_request: Option<X>) {
+    fn receive(&mut self, cor: Arc<Mutex<Cor<X>>>, given_as_request: Option<X>) {
         let _op_ch_sender = self.op_ch_sender.clone();
         let _given_as_request = Box::new(given_as_request);
 
@@ -225,9 +251,25 @@ impl<'a, X: Send + Sync + Clone + 'static> Cor<'a, X> {
 }
 #[test]
 fn test_cor_new() {
-    // let _cor1 = <Cor<String>>::new_with_mutex(|_this| {});
-    // let cor1 = _cor1.lock().unwrap();
-    // _cor1.start();
-    let _cor1 = <Cor<String>>::new(|_this| {});
-    // _cor1.start();
+    use std::time;
+
+    println!("test_cor_new");
+
+    let _cor1 = <Cor<String>>::new_with_mutex(|cor1| {
+        println!("cor1 started");
+
+        let _cor2 = <Cor<String>>::new_with_mutex(|cor2| {
+            println!("cor2 started");
+
+            let s = Cor::yield_ref(cor2, Some(String::from("given_to_outside")));
+            println!("cor2 {:?}", s);
+        });
+        Cor::start(_cor2.clone());
+
+        let s = Cor::yield_from(cor1.clone(), _cor2.clone(), Some(String::from("3")));
+        println!("cor1 {:?}", s);
+    });
+    Cor::start(_cor1);
+
+    thread::sleep(time::Duration::from_millis(100));
 }
