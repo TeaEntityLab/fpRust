@@ -33,9 +33,10 @@ Thus I implemented fpRust. I hope you would like it :)
   * simple BlockingQueue (inspired by *`Java BlockingQueue`*, implemented by built-in *`std::sync::mpsc::channel`*)
   * HandlerThread (inspired by *`Android Handler`*, implemented by built-in *`std::thread`*)
 
+* PythonicGenerator-like Coroutine(yield/yieldFrom, async/sync)
+
 ~~* Pattern matching~~
 
-~~* PythonicGenerator-like Coroutine(yield/yieldFrom)~~
 
 
 # Usage

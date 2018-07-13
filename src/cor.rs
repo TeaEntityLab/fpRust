@@ -13,6 +13,8 @@ impl<X: Send + Sync + Clone> CorOp<X> {}
 
 #[derive(Clone)]
 pub struct Cor<X: 'static> {
+    pub async: bool,
+
     started_alive: Arc<Mutex<(AtomicBool, AtomicBool)>>,
 
     op_ch_sender: Arc<Mutex<Sender<CorOp<X>>>>,
@@ -27,6 +29,7 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
         let (op_ch_sender, op_ch_receiver) = channel();
         let (result_ch_sender, result_ch_receiver) = channel();
         Cor {
+            async: true,
             started_alive: Arc::new(Mutex::new((AtomicBool::new(false), AtomicBool::new(false)))),
 
             op_ch_sender: Arc::new(Mutex::new(op_ch_sender)),
@@ -118,39 +121,35 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
     }
 
     pub fn start(this: Arc<Mutex<Cor<X>>>) {
-        {
-            println!("cor start");
+        let async;
 
+        {
             let _started_alive;
 
             {
                 let _me = this.clone();
                 let me = _me.lock().unwrap();
+                async = me.async;
                 _started_alive = me.started_alive.clone();
             }
 
             let started_alive = _started_alive.lock().unwrap();
             let &(ref started, ref alive) = &*started_alive;
-            if (!alive.load(Ordering::SeqCst)) || started.load(Ordering::SeqCst) {
+            if started.load(Ordering::SeqCst) {
                 return;
             }
             started.store(true, Ordering::SeqCst);
             alive.store(true, Ordering::SeqCst);
-
-            println!("cor start started_alive checked");
         }
 
         {
-
-            thread::spawn(move || {
+            let do_things = move || {
                 {
-                    println!("cor start inside thread");
-
                     let mut _effect;
                     {
                         let _me = this.clone();
                         let me = _me.lock().unwrap();
-                         _effect = me.effect.clone();
+                        _effect = me.effect.clone();
                     }
 
                     let effect = &mut *_effect.lock().unwrap();
@@ -159,13 +158,15 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
 
                 {
                     let _me = this.clone();
-                    let me = _me.lock().unwrap();
-                    let _started_alive = me.started_alive.clone();
-                    let started_alive = _started_alive.lock().unwrap();
-                    let &(_, ref alive) = &*started_alive;
-                    alive.store(false, Ordering::SeqCst);
+                    let mut me = _me.lock().unwrap();
+                    me.stop();
                 }
-            });
+            };
+            if async {
+                thread::spawn(do_things);
+            } else {
+                do_things();
+            }
         }
     }
 
