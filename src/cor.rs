@@ -119,9 +119,16 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
 
     pub fn start(this: Arc<Mutex<Cor<X>>>) {
         {
-            let _me = this.clone();
-            let me = _me.lock().unwrap();
-            let _started_alive = me.started_alive.clone();
+            println!("cor start");
+
+            let _started_alive;
+
+            {
+                let _me = this.clone();
+                let me = _me.lock().unwrap();
+                _started_alive = me.started_alive.clone();
+            }
+
             let started_alive = _started_alive.lock().unwrap();
             let &(ref started, ref alive) = &*started_alive;
             if (!alive.load(Ordering::SeqCst)) || started.load(Ordering::SeqCst) {
@@ -129,37 +136,31 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
             }
             started.store(true, Ordering::SeqCst);
             alive.store(true, Ordering::SeqCst);
+
+            println!("cor start started_alive checked");
         }
 
         {
-            let _started_alive;
-            let mut _effect;
-
-            {
-                let _me = this.clone();
-                let me = _me.lock().unwrap();
-                _started_alive = me.started_alive.clone();
-                _effect = me.effect.clone();
-            }
-
-            // {
-            //     let effect = &mut *_effect.lock().unwrap();
-            //     (effect)(self);
-            // }
-
-            {
-                let started_alive = _started_alive.lock().unwrap();
-                let &(_, ref alive) = &*started_alive;
-                alive.store(false, Ordering::SeqCst);
-            }
 
             thread::spawn(move || {
                 {
+                    println!("cor start inside thread");
+
+                    let mut _effect;
+                    {
+                        let _me = this.clone();
+                        let me = _me.lock().unwrap();
+                         _effect = me.effect.clone();
+                    }
+
                     let effect = &mut *_effect.lock().unwrap();
                     (effect)(this.clone());
                 }
 
                 {
+                    let _me = this.clone();
+                    let me = _me.lock().unwrap();
+                    let _started_alive = me.started_alive.clone();
                     let started_alive = _started_alive.lock().unwrap();
                     let &(_, ref alive) = &*started_alive;
                     alive.store(false, Ordering::SeqCst);
