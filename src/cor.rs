@@ -13,7 +13,7 @@ impl<X: Send + Sync + Clone> CorOp<X> {}
 
 #[derive(Clone)]
 pub struct Cor<X: 'static> {
-    pub async: bool,
+    async: bool,
 
     started_alive: Arc<Mutex<(AtomicBool, AtomicBool)>>,
 
@@ -65,12 +65,18 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
 
         // target MutexGuard lifetime block
         {
-            target
-                .lock()
-                .unwrap()
-                .receive(this.clone(), given_to_outside);
+            {
+                target
+                    .lock()
+                    .unwrap()
+                    .receive(this.clone(), given_to_outside);
+            }
 
-            let result = _result_ch_receiver.lock().unwrap().recv();
+            let result;
+            {
+                let result_ch_receiver = _result_ch_receiver.lock().unwrap();
+                result = result_ch_receiver.recv();
+            }
 
             match result.ok() {
                 Some(_x) => {
@@ -168,6 +174,10 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
                 do_things();
             }
         }
+    }
+
+    pub fn set_async(&mut self, async: bool) {
+        self.async = async;
     }
 
     pub fn is_started(&mut self) -> bool {
