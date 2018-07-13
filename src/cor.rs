@@ -270,18 +270,32 @@ fn test_cor_new() {
     let _cor1 = <Cor<String>>::new_with_mutex(|cor1| {
         println!("cor1 started");
 
-        let _cor2 = <Cor<String>>::new_with_mutex(|cor2| {
-            println!("cor2 started");
-
-            let s = Cor::yield_ref(cor2, Some(String::from("given_to_outside")));
-            println!("cor2 {:?}", s);
-        });
-        Cor::start(_cor2.clone());
-
-        let s = Cor::yield_from(cor1.clone(), _cor2.clone(), Some(String::from("3")));
+        let s = Cor::yield_ref(cor1.clone(), Some(String::from("given_to_outside")));
         println!("cor1 {:?}", s);
     });
-    Cor::start(_cor1);
+    let cor1 = _cor1.clone();
+
+    let _cor2 = <Cor<String>>::new_with_mutex(move |cor2| {
+        println!("cor2 started");
+
+        println!("cor2 yield_from before");
+
+        let s = Cor::yield_from(cor2.clone(), cor1.clone(), Some(String::from("3")));
+        println!("cor2 {:?}", s);
+    });
+
+    {
+        let cor1 = _cor1.clone();
+        cor1.lock().unwrap().set_async(true); // NOTE Cor default async
+        // NOTE cor1 should keep async to avoid deadlock waiting.(waiting for each other)
+    }
+    {
+        let cor2 = _cor2.clone();
+        cor2.lock().unwrap().set_async(false);
+        // NOTE cor2 is the entry point, so it could be sync without any deadlock.
+    }
+    Cor::start(_cor1.clone());
+    Cor::start(_cor2.clone());
 
     thread::sleep(time::Duration::from_millis(100));
 }
