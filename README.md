@@ -12,7 +12,7 @@ Monad, Functional Programming features for Rust
 
 # Why
 
-I love functional programing, Rx-style coding.
+I love functional programming, Rx-style coding.
 
 However it's hard to implement them in Rust, and there're few libraries to achieve parts of them.
 

@@ -58,6 +58,15 @@ pub struct Cor<X: 'static> {
     effect: Arc<Mutex<FnMut(Arc<Mutex<Cor<X>>>) + Send + Sync + 'static>>,
 }
 impl<X: Send + Sync + Clone + 'static> Cor<X> {
+
+    /**
+    Generate a new `Cor` with the given `FnMut` function for the execution of this `Cor`.
+
+    # Arguments
+
+    * `effect` - The given `FnMut`, the execution code of `Cor`.
+
+    */
     pub fn new(effect: impl FnMut(Arc<Mutex<Cor<X>>>) + Send + Sync + 'static) -> Cor<X> {
         let (op_ch_sender, op_ch_receiver) = channel();
         let (result_ch_sender, result_ch_receiver) = channel();
@@ -73,16 +82,41 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
             effect: Arc::new(Mutex::new(effect)),
         }
     }
+
+    /**
+    Generate a new `Arc<Mutex<Cor<X>>>` with the given `FnMut` function for the execution of this `Cor`.
+
+    # Arguments
+
+    * `effect` - The given `FnMut`, the execution code of `Cor`.
+
+    */
     pub fn new_with_mutex(
         effect: impl FnMut(Arc<Mutex<Cor<X>>>) + Send + Sync + 'static,
     ) -> Arc<Mutex<Cor<X>>> {
         Arc::new(Mutex::new(<Cor<X>>::new(effect)))
     }
 
+    /**
+    Make `this` sends a given `Option<X>` to `target`,
+    and this method returns the response from `target`.
+
+    # Arguments
+
+    * `this` - The sender when sending `sent_to_inside` to `target`.
+    * `target` - The receiver of value `sent_to_inside` sent by `this`.
+    * `sent_to_inside` - The value sent by `this` and received by `target`.
+
+    # Remarks
+
+    This method is implemented according to some coroutine/generator implementations,
+    such as `Python`, `Lua`, `ECMASript`...etc.
+
+    */
     pub fn yield_from(
         this: Arc<Mutex<Cor<X>>>,
         target: Arc<Mutex<Cor<X>>>,
-        given_to_outside: Option<X>,
+        sent_to_inside: Option<X>,
     ) -> Option<X> {
         let _result_ch_receiver;
 
@@ -102,7 +136,7 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
                 target
                     .lock()
                     .unwrap()
-                    .receive(this.clone(), given_to_outside);
+                    .receive(this.clone(), sent_to_inside);
             }
 
             let result;
@@ -122,10 +156,39 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
         return None;
     }
 
+    /**
+    Make `this` returns a given `None::<X>` to its callee `Cor`,
+    and this method returns the value given from outside.
+
+    # Arguments
+
+    * `this` - The sender when sending `given_to_outside` to callee `Cor`.
+
+    # Remarks
+
+    This method is implemented according to some coroutine/generator implementations,
+    such as `Python`, `Lua`, `ECMASript`...etc.
+
+    */
     pub fn yield_none(this: Arc<Mutex<Cor<X>>>) -> Option<X> {
         return Cor::yield_ref(this, None);
     }
 
+    /**
+    Make `this` returns a given `Option<X>` `given_to_outside` to its callee `Cor`,
+    and this method returns the value given from outside.
+
+    # Arguments
+
+    * `this` - The sender when sending `given_to_outside` to callee `Cor`.
+    * `given_to_outside` - The value sent by `this` and received by `target`.
+
+    # Remarks
+
+    This method is implemented according to some coroutine/generator implementations,
+    such as `Python`, `Lua`, `ECMASript`...etc.
+
+    */
     pub fn yield_ref(this: Arc<Mutex<Cor<X>>>, given_to_outside: Option<X>) -> Option<X> {
         let _op_ch_receiver;
         // me MutexGuard lifetime block
@@ -159,6 +222,17 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
         return None;
     }
 
+    /**
+
+    Start `this` `Cor`.
+
+    # Arguments
+
+    * `this` - The target `Cor` to start.
+
+    *NOTE*: Beware the deadlock if it's sync(waiting for each other), except the entry point.
+
+    */
     pub fn start(this: Arc<Mutex<Cor<X>>>) {
         let async;
 
@@ -209,10 +283,26 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
         }
     }
 
+    /**
+    Setup async or not.
+    Default `async`: `true`
+
+    # Arguments
+
+    * `async` - async when `true`, otherwise `sync`.
+
+    *NOTE*: Beware the deadlock if it's sync(waiting for each other), except the entry point.
+
+    */
     pub fn set_async(&mut self, async: bool) {
         self.async = async;
     }
 
+    /**
+    Did this `Cor` start?
+    Return `true` when it did started (no matter it has stopped or not)
+
+    */
     pub fn is_started(&mut self) -> bool {
         let _started_alive = self.started_alive.clone();
         let started_alive = _started_alive.lock().unwrap();
@@ -220,6 +310,11 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
         return started.load(Ordering::SeqCst);
     }
 
+    /**
+    Did this `Cor` alive?
+    Return `true` when it has started and not stopped yet.
+
+    */
     pub fn is_alive(&mut self) -> bool {
         let _started_alive = self.started_alive.clone();
         let started_alive = _started_alive.lock().unwrap();
@@ -227,6 +322,14 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
         return alive.load(Ordering::SeqCst);
     }
 
+    /**
+
+    Stop `Cor`.
+    This will make self.`is_alive`() returns `false`,
+    and all `yield_from`() from this `Cor` as `target` will return `None::<X>`.
+    (Because it has stopped :P, that's reasonable)
+
+    */
     pub fn stop(&mut self) {
         {
             let _started_alive = self.started_alive.clone();

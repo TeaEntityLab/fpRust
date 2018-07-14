@@ -1,8 +1,25 @@
+/*!
+In this module, there're implementations & tests of `Publisher`
+*/
 use common::{Observable, RawFunc, Subscription, SubscriptionFunc};
 use handler::Handler;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
+/**
+The `Publisher` implements *PubSub-like* features.
+
+# Arguments
+
+* `X` - The generic type of yielded/yielding data
+* `T` - In order to pass compilations, `T` must be `SubscriptionFunc<X>` (for instantiation)
+
+# Remarks
+
+It could be sync or async up to your usages,
+and it could be mapped just as Rx-like APIs.
+
+*/
 #[derive(Clone)]
 pub struct Publisher<X, T> {
     observers: Vec<Arc<T>>,

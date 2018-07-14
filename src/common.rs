@@ -52,8 +52,34 @@ This is an implementation of Observer Pattern of GoF.
 *NOTE*: Inspired by and modified from https://github.com/eliovir/rust-examples/blob/master/design_pattern-observer.rs
 */
 pub trait Observable<X, T: Subscription<X>> {
+    /**
+    Add a `Subscription`.
+
+    # Arguments
+
+    * `observer` - The given `Subscription`.
+
+    */
     fn add_observer(&mut self, observer: Arc<T>);
+
+    /**
+    Remove the observer.
+
+    # Arguments
+
+    * `observer` - The given `Subscription`.
+
+    */
     fn delete_observer(&mut self, observer: Arc<T>);
+
+    /**
+    Notify all `Subscription` subscribers with a given value `Arc<X>`.
+
+    # Arguments
+
+    * `x` - The given `Arc<X>` value for broadcasting.
+
+    */
     fn notify_observers(&mut self, x: Arc<X>);
 }
 
@@ -71,6 +97,14 @@ This is an implementation of Observer Pattern of GoF, and inspired by Rx Subscri
 
 */
 pub trait Subscription<X>: Send + Sync + 'static + PartialEq {
+    /**
+    The callback when `Subscription` received the broadcasted value.
+
+    # Arguments
+
+    * `func` - The given `FnMut`.
+
+    */
     fn on_next(&mut self, x: Arc<X>);
 }
 
@@ -138,6 +172,14 @@ pub struct RawReceiver<T> {
 }
 
 impl<T> RawReceiver<T> {
+    /**
+    Generate a new `RawReceiver` with the given `FnMut`.
+
+    # Arguments
+
+    * `func` - The given `FnMut`.
+
+    */
     pub fn new(func: impl FnMut(Arc<T>) + Send + Sync + 'static) -> RawReceiver<T> {
         return RawReceiver {
             func: Arc::new(Mutex::new(func)),
@@ -145,6 +187,14 @@ impl<T> RawReceiver<T> {
         };
     }
 
+    /**
+    Invoke the `FnMut` with the given sent value.
+
+    # Arguments
+
+    * `x` - The sent value.
+
+    */
     pub fn invoke(&self, x: Arc<T>) {
         let func = &mut *self.func.lock().unwrap();
         (func)(x);
@@ -166,6 +216,14 @@ pub struct RawFunc {
 }
 
 impl RawFunc {
+    /**
+    Generate a new `RawFunc` with the given `FnMut`.
+
+    # Arguments
+
+    * `func` - The given `FnMut`.
+
+    */
     pub fn new<T>(func: T) -> RawFunc
     where
         T: FnMut() + Send + Sync + 'static,
@@ -175,6 +233,9 @@ impl RawFunc {
         };
     }
 
+    /**
+    Invoke the `FnMut`.
+    */
     pub fn invoke(&self) {
         let func = &mut *self.func.lock().unwrap();
         (func)();
