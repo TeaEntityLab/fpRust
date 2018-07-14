@@ -1,3 +1,6 @@
+/*!
+In this module there're implementations & tests of `Cor`.
+*/
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc::{channel, Receiver, Sender},
@@ -5,12 +8,42 @@ use std::sync::{
 };
 use std::thread;
 
+/**
+`CorOp` defines a yield action between `Cor` objects.
+
+# Arguments
+
+* `X` - The generic type of yielded data
+
+# Remarks
+
+It's the base of implementations of `Cor`.
+It contains the `Cor` calling `yield_from`() and the val sent together,
+and it's necessary to the target `Cor` making the response by `yield_ref`()/`yield_none`().
+
+*/
 pub struct CorOp<X: 'static> {
     pub cor: Arc<Mutex<Cor<X>>>,
     pub val: Option<X>,
 }
-impl<X: Send + Sync + Clone> CorOp<X> {}
+impl<X> CorOp<X> {}
 
+/**
+The `Cor` implements a *PythonicGenerator-like Coroutine*.
+
+# Arguments
+
+* `X` - The generic type of yielded/yielding data
+
+# Remarks
+
+It could be sync or async up to your usages,
+and it could use `yield_from` to send a value to another `Cor` object and get the response,
+and use `yield_ref`()/`yield_none`() to return my response to the callee of mine.
+
+*NOTE*: Beware the deadlock if it's sync(waiting for each other), except the entry point.
+
+*/
 #[derive(Clone)]
 pub struct Cor<X: 'static> {
     async: bool,
