@@ -13,7 +13,8 @@ use std::thread;
 
 # Arguments
 
-* `X` - The generic type of yielded data
+* `RETURN` - The generic type of returned data
+* `RECEIVE` - The generic type of received data
 
 # Remarks
 
@@ -22,18 +23,19 @@ It contains the `Cor` calling `yield_from`() and the val sent together,
 and it's necessary to the target `Cor` making the response by `yield_ref`()/`yield_none`().
 
 */
-pub struct CorOp<X: 'static> {
-    pub result_ch_sender: Arc<Mutex<Sender<Option<X>>>>,
-    pub val: Option<X>,
+pub struct CorOp<RETURN: 'static, RECEIVE: 'static> {
+    pub result_ch_sender: Arc<Mutex<Sender<Option<RETURN>>>>,
+    pub val: Option<RECEIVE>,
 }
-impl<X> CorOp<X> {}
+impl<RETURN, RECEIVE> CorOp<RETURN, RECEIVE> {}
 
 /**
 The `Cor` implements a *PythonicGenerator-like Coroutine*.
 
 # Arguments
 
-* `X` - The generic type of yielded/yielding data
+* `RETURN` - The generic type of returned data
+* `RECEIVE` - The generic type of received data
 
 # Remarks
 
@@ -45,16 +47,18 @@ and use `yield_ref`()/`yield_none`() to return my response to the callee of mine
 
 */
 #[derive(Clone)]
-pub struct Cor<X: 'static> {
+pub struct Cor<RETURN: 'static, RECEIVE: 'static> {
     async: bool,
 
     started_alive: Arc<Mutex<(AtomicBool, AtomicBool)>>,
 
-    op_ch_sender: Arc<Mutex<Sender<CorOp<X>>>>,
-    op_ch_receiver: Arc<Mutex<Receiver<CorOp<X>>>>,
-    effect: Arc<Mutex<FnMut(Arc<Mutex<Cor<X>>>) + Send + Sync + 'static>>,
+    op_ch_sender: Arc<Mutex<Sender<CorOp<RETURN, RECEIVE>>>>,
+    op_ch_receiver: Arc<Mutex<Receiver<CorOp<RETURN, RECEIVE>>>>,
+    effect: Arc<Mutex<FnMut(Arc<Mutex<Cor<RETURN, RECEIVE>>>) + Send + Sync + 'static>>,
 }
-impl<X: Send + Sync + Clone + 'static> Cor<X> {
+impl<RETURN: Send + Sync + Clone + 'static, RECEIVE: Send + Sync + Clone + 'static>
+    Cor<RETURN, RECEIVE>
+{
     /**
     Generate a new `Cor` with the given `FnMut` function for the execution of this `Cor`.
 
@@ -63,7 +67,9 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
     * `effect` - The given `FnMut`, the execution code of `Cor`.
 
     */
-    pub fn new(effect: impl FnMut(Arc<Mutex<Cor<X>>>) + Send + Sync + 'static) -> Cor<X> {
+    pub fn new(
+        effect: impl FnMut(Arc<Mutex<Cor<RETURN, RECEIVE>>>) + Send + Sync + 'static,
+    ) -> Cor<RETURN, RECEIVE> {
         let (op_ch_sender, op_ch_receiver) = channel();
         Cor {
             async: true,
@@ -76,7 +82,7 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
     }
 
     /**
-    Generate a new `Arc<Mutex<Cor<X>>>` with the given `FnMut` function for the execution of this `Cor`.
+    Generate a new `Arc<Mutex<Cor<RETURN, RECEIVE>>>` with the given `FnMut` function for the execution of this `Cor`.
 
     # Arguments
 
@@ -84,14 +90,14 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
 
     */
     pub fn new_with_mutex(
-        effect: impl FnMut(Arc<Mutex<Cor<X>>>) + Send + Sync + 'static,
-    ) -> Arc<Mutex<Cor<X>>> {
-        Arc::new(Mutex::new(<Cor<X>>::new(effect)))
+        effect: impl FnMut(Arc<Mutex<Cor<RETURN, RECEIVE>>>) + Send + Sync + 'static,
+    ) -> Arc<Mutex<Cor<RETURN, RECEIVE>>> {
+        Arc::new(Mutex::new(<Cor<RETURN, RECEIVE>>::new(effect)))
     }
 
     /**
-    Make `this` sends a given `Option<X>` to `target`,
-    and this method returns the response from `target`.
+    Make `this` sends a given `Option<RECEIVETARGET>` to `target`,
+    and this method returns the `Option<RETURNTARGET>` response from `target`.
 
     # Arguments
 
@@ -105,11 +111,14 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
     such as `Python`, `Lua`, `ECMASript`...etc.
 
     */
-    pub fn yield_from<Y: Send + Sync + Clone + 'static>(
-        this: Arc<Mutex<Cor<X>>>,
-        target: Arc<Mutex<Cor<Y>>>,
-        sent_to_inside: Option<Y>,
-    ) -> Option<Y> {
+    pub fn yield_from<
+        RETURNTARGET: Send + Sync + Clone + 'static,
+        RECEIVETARGET: Send + Sync + Clone + 'static,
+    >(
+        this: Arc<Mutex<Cor<RETURN, RECEIVE>>>,
+        target: Arc<Mutex<Cor<RETURNTARGET, RECEIVETARGET>>>,
+        sent_to_inside: Option<RECEIVETARGET>,
+    ) -> Option<RETURNTARGET> {
         // me MutexGuard lifetime block
         {
             let _me = this.clone();
@@ -153,8 +162,8 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
     }
 
     /**
-    Make `this` returns a given `None::<X>` to its callee `Cor`,
-    and this method returns the value given from outside.
+    Make `this` returns a given `None::<RETURN>` to its callee `Cor`,
+    and this method returns the `Option<RECEIVE>` value given from outside.
 
     # Arguments
 
@@ -166,13 +175,13 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
     such as `Python`, `Lua`, `ECMASript`...etc.
 
     */
-    pub fn yield_none(this: Arc<Mutex<Cor<X>>>) -> Option<X> {
+    pub fn yield_none(this: Arc<Mutex<Cor<RETURN, RECEIVE>>>) -> Option<RECEIVE> {
         return Cor::yield_ref(this, None);
     }
 
     /**
-    Make `this` returns a given `Option<X>` `given_to_outside` to its callee `Cor`,
-    and this method returns the value given from outside.
+    Make `this` returns a given `Option<RETURN>` `given_to_outside` to its callee `Cor`,
+    and this method returns the `Option<RECEIVE>` value given from outside.
 
     # Arguments
 
@@ -185,7 +194,10 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
     such as `Python`, `Lua`, `ECMASript`...etc.
 
     */
-    pub fn yield_ref(this: Arc<Mutex<Cor<X>>>, given_to_outside: Option<X>) -> Option<X> {
+    pub fn yield_ref(
+        this: Arc<Mutex<Cor<RETURN, RECEIVE>>>,
+        given_to_outside: Option<RETURN>,
+    ) -> Option<RECEIVE> {
         let _op_ch_receiver;
         // me MutexGuard lifetime block
         {
@@ -228,7 +240,7 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
     *NOTE*: Beware the deadlock if it's sync(waiting for each other), except the entry point.
 
     */
-    pub fn start(this: Arc<Mutex<Cor<X>>>) {
+    pub fn start(this: Arc<Mutex<Cor<RETURN, RECEIVE>>>) {
         let async;
 
         {
@@ -321,7 +333,7 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
 
     Stop `Cor`.
     This will make self.`is_alive`() returns `false`,
-    and all `yield_from`() from this `Cor` as `target` will return `None::<X>`.
+    and all `yield_from`() from this `Cor` as `target` will return `None::<RETURN>`.
     (Because it has stopped :P, that's reasonable)
 
     */
@@ -345,11 +357,10 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
         }
     }
 
-    // fn receive(&mut self, cor: Arc<Mutex<Cor<X>>>, given_as_request: Option<X>) {
     fn receive(
         &mut self,
-        result_ch_sender: Arc<Mutex<Sender<Option<X>>>>,
-        given_as_request: Option<X>,
+        result_ch_sender: Arc<Mutex<Sender<Option<RETURN>>>>,
+        given_as_request: Option<RECEIVE>,
     ) {
         let _op_ch_sender = self.op_ch_sender.clone();
         let _given_as_request = Box::new(given_as_request);
@@ -394,7 +405,7 @@ fn test_cor_new() {
 
     println!("test_cor_new");
 
-    let _cor1 = <Cor<String>>::new_with_mutex(|this| {
+    let _cor1 = <Cor<String, i16>>::new_with_mutex(|this| {
         println!("cor1 started");
 
         let s = Cor::yield_ref(this.clone(), Some(String::from("given_to_outside")));
@@ -402,12 +413,12 @@ fn test_cor_new() {
     });
     let cor1 = _cor1.clone();
 
-    let _cor2 = <Cor<i16>>::new_with_mutex(move |this| {
+    let _cor2 = <Cor<i16, i16>>::new_with_mutex(move |this| {
         println!("cor2 started");
 
         println!("cor2 yield_from before");
 
-        let s = Cor::yield_from(this.clone(), cor1.clone(), Some(String::from("3")));
+        let s = Cor::yield_from(this.clone(), cor1.clone(), Some(3));
         println!("cor2 {:?}", s);
     });
 
