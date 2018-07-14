@@ -212,7 +212,7 @@ let _cor1 = <Cor<String>>::new_with_mutex(|this| {
 });
 let cor1 = _cor1.clone();
 
-let _cor2 = <Cor<String>>::new_with_mutex(move |this| {
+let _cor2 = <Cor<i16>>::new_with_mutex(move |this| {
     println!("cor2 started");
 
     println!("cor2 yield_from before");

@@ -23,7 +23,7 @@ and it's necessary to the target `Cor` making the response by `yield_ref`()/`yie
 
 */
 pub struct CorOp<X: 'static> {
-    pub cor: Arc<Mutex<Cor<X>>>,
+    pub result_ch_sender: Arc<Mutex<Sender<Option<X>>>>,
     pub val: Option<X>,
 }
 impl<X> CorOp<X> {}
@@ -52,13 +52,9 @@ pub struct Cor<X: 'static> {
 
     op_ch_sender: Arc<Mutex<Sender<CorOp<X>>>>,
     op_ch_receiver: Arc<Mutex<Receiver<CorOp<X>>>>,
-    result_ch_sender: Arc<Mutex<Sender<Option<X>>>>,
-    result_ch_receiver: Arc<Mutex<Receiver<Option<X>>>>,
-
     effect: Arc<Mutex<FnMut(Arc<Mutex<Cor<X>>>) + Send + Sync + 'static>>,
 }
 impl<X: Send + Sync + Clone + 'static> Cor<X> {
-
     /**
     Generate a new `Cor` with the given `FnMut` function for the execution of this `Cor`.
 
@@ -69,16 +65,12 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
     */
     pub fn new(effect: impl FnMut(Arc<Mutex<Cor<X>>>) + Send + Sync + 'static) -> Cor<X> {
         let (op_ch_sender, op_ch_receiver) = channel();
-        let (result_ch_sender, result_ch_receiver) = channel();
         Cor {
             async: true,
             started_alive: Arc::new(Mutex::new((AtomicBool::new(false), AtomicBool::new(false)))),
 
             op_ch_sender: Arc::new(Mutex::new(op_ch_sender)),
             op_ch_receiver: Arc::new(Mutex::new(op_ch_receiver)),
-            result_ch_sender: Arc::new(Mutex::new(result_ch_sender)),
-            result_ch_receiver: Arc::new(Mutex::new(result_ch_receiver)),
-
             effect: Arc::new(Mutex::new(effect)),
         }
     }
@@ -113,13 +105,11 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
     such as `Python`, `Lua`, `ECMASript`...etc.
 
     */
-    pub fn yield_from(
+    pub fn yield_from<Y: Send + Sync + Clone + 'static>(
         this: Arc<Mutex<Cor<X>>>,
-        target: Arc<Mutex<Cor<X>>>,
-        sent_to_inside: Option<X>,
-    ) -> Option<X> {
-        let _result_ch_receiver;
-
+        target: Arc<Mutex<Cor<Y>>>,
+        sent_to_inside: Option<Y>,
+    ) -> Option<Y> {
         // me MutexGuard lifetime block
         {
             let _me = this.clone();
@@ -127,22 +117,28 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
             if !me.is_alive() {
                 return None;
             }
-            _result_ch_receiver = me.result_ch_receiver.clone();
         }
 
         // target MutexGuard lifetime block
         {
+            let (result_ch_sender, result_ch_receiver) = channel();
+            let _result_ch_sender = Arc::new(Mutex::new(result_ch_sender));
+            let _result_ch_receiver = Arc::new(Mutex::new(result_ch_receiver));
+
             {
                 target
                     .lock()
                     .unwrap()
-                    .receive(this.clone(), sent_to_inside);
+                    .receive(_result_ch_sender.clone(), sent_to_inside);
             }
 
             let result;
             {
                 let result_ch_receiver = _result_ch_receiver.lock().unwrap();
                 result = result_ch_receiver.recv();
+            }
+            {
+                drop(_result_ch_sender.lock().unwrap());
             }
 
             match result.ok() {
@@ -210,8 +206,7 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
         match op.ok() {
             Some(_x) => {
                 {
-                    let mut cor_other = _x.cor.lock().unwrap();
-                    cor_other.offer(given_to_outside);
+                    let _result = _x.result_ch_sender.lock().unwrap().send(given_to_outside);
                 }
 
                 return _x.val;
@@ -346,12 +341,16 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
 
             {
                 drop(self.op_ch_sender.lock().unwrap());
-                drop(self.result_ch_sender.lock().unwrap());
             }
         }
     }
 
-    fn receive(&mut self, cor: Arc<Mutex<Cor<X>>>, given_as_request: Option<X>) {
+    // fn receive(&mut self, cor: Arc<Mutex<Cor<X>>>, given_as_request: Option<X>) {
+    fn receive(
+        &mut self,
+        result_ch_sender: Arc<Mutex<Sender<Option<X>>>>,
+        given_as_request: Option<X>,
+    ) {
         let _op_ch_sender = self.op_ch_sender.clone();
         let _given_as_request = Box::new(given_as_request);
 
@@ -367,23 +366,14 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
             // do: (effect)();
             let given_as_request = _given_as_request.clone();
             let _result = _op_ch_sender.lock().unwrap().send(CorOp {
-                cor: cor,
+                // cor: cor,
+                result_ch_sender: result_ch_sender,
                 val: *given_as_request,
             });
         }
     }
 
-    fn offer(&mut self, received_as_response: Option<X>) {
-        let _result_ch_sender = self.result_ch_sender.clone();
-        let _received_as_response = Box::new(received_as_response);
-        self.do_close_safe(move || {
-            let result_ch_sender = _result_ch_sender.clone();
-            let received_as_response = _received_as_response.clone();
-
-            let _result = result_ch_sender.lock().unwrap().send(*received_as_response);
-        });
-    }
-
+    /*
     fn do_close_safe(&mut self, mut effect: impl FnMut()) {
         if !self.is_alive() {
             return;
@@ -396,6 +386,7 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
             (effect)();
         }
     }
+    */
 }
 #[test]
 fn test_cor_new() {
@@ -411,7 +402,7 @@ fn test_cor_new() {
     });
     let cor1 = _cor1.clone();
 
-    let _cor2 = <Cor<String>>::new_with_mutex(move |this| {
+    let _cor2 = <Cor<i16>>::new_with_mutex(move |this| {
         println!("cor2 started");
 
         println!("cor2 yield_from before");
@@ -423,7 +414,7 @@ fn test_cor_new() {
     {
         let cor1 = _cor1.clone();
         cor1.lock().unwrap().set_async(true); // NOTE Cor default async
-        // NOTE cor1 should keep async to avoid deadlock waiting.(waiting for each other)
+                                              // NOTE cor1 should keep async to avoid deadlock waiting.(waiting for each other)
     }
     {
         let cor2 = _cor2.clone();
