@@ -1,3 +1,22 @@
+/*!
+In this module there're implementations & tests of `Maybe`.
+*/
+
+/**
+`Maybe` wraps built-in `Option<T>`,
+and implements `Applicative` and `Chain` of `fantasy-land`.
+
+# Arguments
+
+* `T` - The generic type of data
+
+# Remarks
+
+It implements `Applicative` and `Chain` of `fantasy-land`,
+and use the same interface as `fpEs` & `fpGo`(sister libraries :P)
+
+``
+*/
 #[derive(Clone)]
 pub struct Maybe<T> {
     r: Option<T>,

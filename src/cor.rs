@@ -311,7 +311,7 @@ impl<X: Send + Sync + Clone + 'static> Cor<X> {
     }
 
     /**
-    Did this `Cor` alive?
+    Is this `Cor` alive?
     Return `true` when it has started and not stopped yet.
 
     */

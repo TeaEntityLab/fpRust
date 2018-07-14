@@ -1,9 +1,26 @@
+/*!
+In this module there're implementations & tests
+of general async handling features.
+*/
+
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc, Arc, Condvar, Mutex,
 };
 use std::time::Duration;
 
+/**
+`CountDownLatch` implements a latch with a value(> 0),
+waiting for the value counted down until <= 0
+(the countdown action would be in other threads).
+
+# Remarks
+
+It's inspired by `CountDownLatch` in `Java`
+, and easily use it on async scenaios.
+
+``
+*/
 #[derive(Debug, Clone)]
 pub struct CountDownLatch {
     pair: Arc<(Arc<Mutex<u64>>, Condvar)>,
@@ -51,6 +68,19 @@ impl CountDownLatch {
     }
 }
 
+/**
+`Queue` `trait` defined the interface which perform basic `Queue` actions.
+
+# Arguments
+
+* `T` - The generic type of data
+
+# Remarks
+
+It's inspired by `Queue` in `Java`.
+
+``
+*/
 pub trait Queue<T> {
     fn offer(&mut self, v: T);
     fn poll(&mut self) -> Option<T>;
@@ -58,6 +88,20 @@ pub trait Queue<T> {
     fn take(&mut self) -> Option<T>;
 }
 
+/**
+`BlockingQueue` implements `Queue` `trait` and provides `BlockingQueue` features.
+
+# Arguments
+
+* `T` - The generic type of data
+
+# Remarks
+
+It's inspired by `BlockingQueue` in `Java`,
+, and easily use it on async scenaios.
+
+``
+*/
 #[derive(Debug, Clone)]
 pub struct BlockingQueue<T> {
     pub timeout: Option<Duration>,

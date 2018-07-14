@@ -1,3 +1,7 @@
+/*!
+In this module there're implementations & tests of `Handler`.
+(Inspired by `Android Handler`)
+*/
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -8,16 +12,66 @@ use common::RawFunc;
 use sync as fpSync;
 use sync::Queue;
 
+/**
+`Handler` `trait` defines the interface which could receive `FnMut` and run them on its own `thread`.
+
+# Remarks
+
+This is highly inspired by `Android Handler` concepts.
+
+*/
 pub trait Handler: Send + Sync + 'static {
+    /**
+    Did this `Handler` start?
+    Return `true` when it did started (no matter it has stopped or not)
+
+    */
     fn is_started(&mut self) -> bool;
+
+    /**
+    Is this `Handler` alive?
+    Return `true` when it has started and not stopped yet.
+    */
     fn is_alive(&mut self) -> bool;
 
+    /**
+    Start `Handler`.
+    */
     fn start(&mut self);
+
+    /**
+
+    Stop `Cor`.
+    This will make self.`is_alive`() returns `false`,
+    and all `FnMut` posted by self.`post`() will not be executed.
+    (Because it has stopped :P, that's reasonable)
+
+    */
     fn stop(&mut self);
 
+    /**
+    Post a job which will run on this `Handler`.
+
+    # Arguments
+
+    * `func` - The posted job.
+    ``
+    */
     fn post(&mut self, func: RawFunc);
 }
 
+/**
+`HandlerThread` could receive `FnMut` and run them on its own `thread`.
+It implements `Handler` `trait` simply and works well.
+
+This is kind of facade which just handles `thread`,
+and bypasses jobs to `HandlerThreadInner`(private implementations).
+
+# Remarks
+
+This is highly inspired by `Android Handler` concepts.
+
+*/
 #[derive(Clone)]
 pub struct HandlerThread {
     started_alive: Arc<Mutex<(AtomicBool, AtomicBool)>>,

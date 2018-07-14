@@ -1,9 +1,30 @@
+/*!
+In this module there're implementations & tests of `MonadIO`.
+It's inspired by `Rx` & `MonadIO` in `Haskell`
+*/
 use std::sync::{Arc, Mutex};
 
 use handler::Handler;
 
 use common::{RawFunc, Subscription, SubscriptionFunc};
 
+/**
+`MonadIO` implements basic `Rx`/`MonadIO` APIs.
+The `observe` and `subscribe` actions could be sync/async,
+and `observe` & `subscribe` could be on other `thread`s
+(by setting up `observe_on` and `subscribe_on`).
+
+# Arguments
+
+* `Y` - The generic type of data
+
+# Remarks
+
+It's inspired by `Rx` & `MonadIO` in `Haskell`
+, and easily run it on sync/async scenaios.
+
+``
+*/
 #[derive(Clone)]
 pub struct MonadIO<Y> {
     effect: Arc<Mutex<dyn FnMut() -> Y + Send + Sync + 'static>>,
