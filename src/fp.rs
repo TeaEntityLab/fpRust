@@ -9,10 +9,17 @@ Compose functions.
 *NOTE*: Credit https://stackoverflow.com/questions/45786955/how-to-compose-functions-in-rust
 */
 #[macro_export]
+macro_rules! pipe {
+    ( $last:expr ) => { $last };
+    ( $head:expr, $($tail:expr), +) => {
+        compose_two($head, pipe!($($tail),+))
+    };
+}
+#[macro_export]
 macro_rules! compose {
     ( $last:expr ) => { $last };
     ( $head:expr, $($tail:expr), +) => {
-        compose_two($head, compose!($($tail),+))
+        compose_two(compose!($($tail),+), $head)
     };
 }
 #[macro_export]
