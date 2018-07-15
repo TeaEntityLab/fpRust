@@ -58,6 +58,7 @@ Return `f(g(x))`
 
 *NOTE*: Credit https://stackoverflow.com/questions/45786955/how-to-compose-functions-in-rust
 */
+#[inline]
 pub fn compose_two<A, B, C, G, F>(f: F, g: G) -> impl FnOnce(A) -> C
 where
     F: FnOnce(A) -> B,
@@ -66,10 +67,12 @@ where
     move |x| g(f(x))
 }
 
+#[inline]
 pub fn map<T, B>(f: impl FnMut(T) -> B, v: Vec<T>) -> Vec<B> {
     v.into_iter().map(f).collect::<Vec<B>>()
 }
 
+#[inline]
 pub fn filter<'r, T: 'r>(f: impl FnMut(&T) -> bool, v: Vec<T>) -> Vec<T> {
     v.into_iter().filter(f).into_iter().collect::<Vec<T>>()
 }
@@ -104,6 +107,7 @@ where
     }
 }
 
+#[inline]
 pub fn reduce<'r, T: 'r>(f: impl FnMut(T, T) -> T, v: Vec<T>) -> Option<T> {
     v.into_iter().reduce(f)
 }
