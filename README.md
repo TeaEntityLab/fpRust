@@ -27,7 +27,8 @@ Thus I implemented fpRust. I hope you would like it :)
 * Publisher (*`fp_rust::publisher::Publisher`*)
 
 * Fp functions (*`fp_rust::fp`*)
-  * Currently only compose!() <- __macro__
+  * compose!(), pipe!()
+  * map!(), reduce!(), filter!()
 
 * Async (*`fp_rust::sync`* & *`fp_rust::handler::HandlerThread`*)
   * simple BlockingQueue (inspired by *`Java BlockingQueue`*, implemented by built-in *`std::sync::mpsc::channel`*)
@@ -237,7 +238,7 @@ Cor::start(_cor2.clone());
 thread::sleep(time::Duration::from_millis(100));
 ```
 
-## Compose
+## Fp Functions (Compose, Pipe, Map, Reduce, Filter)
 
 Example:
 
@@ -245,12 +246,24 @@ Example:
 #[macro_use]
 extern crate fp_rust
 
-use fp_rust::fp::compose_two;
+use fp_rust::fp::{
+  compose_two,
+  map, reduce, filter,
+};
 
 let add = |x| x + 2;
-let multiply = |x| x * 2;
+let multiply = |x| x * 3;
 let divide = |x| x / 2;
-let intermediate = compose!(add, multiply, divide);
 
-println!("Value: {}", intermediate(10)); // Value: 12
+let result = (compose!(add, multiply, divide))(10);
+assert_eq!(17, result);
+println!("Composed FnOnce Result is {}", result);
+
+let result = (pipe!(add, multiply, divide))(10);
+assert_eq!(18, result);
+println!("Piped FnOnce Result is {}", result);
+
+let result = (compose!(reduce!(|a, b| a * b), filter!(|x| *x < 6), map!(|x| x * 2)))(vec![1, 2, 3, 4]);
+assert_eq!(Some(8), result);
+println!("test_map_reduce_filter Result is {:?}", result);
 ```

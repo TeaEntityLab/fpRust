@@ -47,7 +47,6 @@ macro_rules! reduce {
     };
 }
 
-
 /**
 Compose two functions into one.
 Return `f(g(x))`
@@ -67,11 +66,11 @@ where
     move |x| g(f(x))
 }
 
-pub fn map<T, F, B>(f: impl FnMut(T) -> B, v: Vec<T>) -> Vec<B> {
+pub fn map<T, B>(f: impl FnMut(T) -> B, v: Vec<T>) -> Vec<B> {
     v.into_iter().map(f).collect::<Vec<B>>()
 }
 
-pub fn filter<'r, T: 'r, F>(f: impl FnMut(&T) -> bool, v: Vec<T>) -> Vec<T> {
+pub fn filter<'r, T: 'r>(f: impl FnMut(&T) -> bool, v: Vec<T>) -> Vec<T> {
     v.into_iter().filter(f).into_iter().collect::<Vec<T>>()
 }
 
@@ -105,17 +104,28 @@ where
     }
 }
 
-pub fn reduce<'r, T: 'r, F>(f: impl FnMut(T, T) -> T, v: Vec<T>) -> Option<T> {
+pub fn reduce<'r, T: 'r>(f: impl FnMut(T, T) -> T, v: Vec<T>) -> Option<T> {
     v.into_iter().reduce(f)
 }
 
 #[test]
 fn test_compose() {
     let add = |x| x + 2;
-    let multiply = |x| x * 2;
+    let multiply = |x| x * 3;
     let divide = |x| x / 2;
 
     let result = (compose!(add, multiply, divide))(10);
-    assert_eq!(12, result);
+    assert_eq!(17, result);
     println!("Composed FnOnce Result is {}", result);
+
+    let result = (pipe!(add, multiply, divide))(10);
+    assert_eq!(18, result);
+    println!("Piped FnOnce Result is {}", result);
+}
+
+#[test]
+fn test_map_reduce_filter() {
+    let result = (compose!(reduce!(|a, b| a * b), filter!(|x| *x < 6), map!(|x| x * 2)))(vec![1, 2, 3, 4]);
+    assert_eq!(Some(8), result);
+    println!("test_map_reduce_filter Result is {:?}", result);
 }
