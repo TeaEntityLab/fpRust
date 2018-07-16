@@ -101,6 +101,16 @@ macro_rules! foldr {
 }
 
 /**
+`Contains` macro for `Vec<T>`, in currying ways by `partial_left_last_one!`().
+*/
+#[macro_export]
+macro_rules! contains {
+    ($x:expr) => {
+        partial_left_last_one!(contains, $x)
+    };
+}
+
+/**
 Compose two functions into one.
 Return `f(g(x))`
 
@@ -138,6 +148,11 @@ pub fn foldl<T, B>(f: impl FnMut(B, T) -> B, initial: B, v: Vec<T>) -> B {
 #[inline]
 pub fn foldr<T, B>(f: impl FnMut(B, T) -> B, initial: B, v: Vec<T>) -> B {
     v.into_iter().rev().fold(initial, f)
+}
+
+#[inline]
+pub fn contains<T: PartialEq>(x: &T, v: Vec<T>) -> bool {
+    v.contains(x)
 }
 
 /**
@@ -202,12 +217,15 @@ fn test_map_reduce_filter() {
 fn test_foldl_foldr() {
     // foldl!(f, initial)
     let result = (compose!(
-        foldl!(|a, b| {
-            if a < 4 {
-                return a + b;
-            }
-            return a;
-        }, 0),
+        foldl!(
+            |a, b| {
+                if a < 4 {
+                    return a + b;
+                }
+                return a;
+            },
+            0
+        ),
         filter!(|x| *x < 6),
         map!(|x| x * 2)
     ))(vec![1, 2, 3, 4]);
@@ -216,15 +234,23 @@ fn test_foldl_foldr() {
 
     // foldr!(f, initial)
     let result = (compose!(
-        foldr!(|a, b| {
-            if a < 4 {
-                return a + b;
-            }
-            return a;
-        }, 0),
+        foldr!(
+            |a, b| {
+                if a < 4 {
+                    return a + b;
+                }
+                return a;
+            },
+            0
+        ),
         filter!(|x| *x < 6),
         map!(|x| x * 2)
     ))(vec![1, 2, 3, 4]);
     assert_eq!(4, result);
     println!("foldr Result is {:?}", result);
+}
+
+#[test]
+fn test_contains() {
+    assert_eq!(true, contains!(&4)(vec!(1, 2, 3, 4)));
 }
