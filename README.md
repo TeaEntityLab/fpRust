@@ -28,7 +28,8 @@ Thus I implemented fpRust. I hope you would like it :)
 
 * Fp functions (*`fp_rust::fp`*)
   * compose!(), pipe!()
-  * map!(), reduce!(), filter!()
+  * map!(), reduce!(), filter!(), foldl!(), foldr!()
+  * contains!(), reverse!()
 
 * Async (*`fp_rust::sync`* & *`fp_rust::handler::HandlerThread`*)
   * simple BlockingQueue (inspired by *`Java BlockingQueue`*, implemented by built-in *`std::sync::mpsc::channel`*)

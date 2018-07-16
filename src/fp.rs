@@ -101,6 +101,16 @@ macro_rules! foldr {
 }
 
 /**
+`Reverse` macro for `Vec<T>`, in currying ways.
+*/
+#[macro_export]
+macro_rules! reverse {
+    () => {
+        |v| reverse(v)
+    };
+}
+
+/**
 `Contains` macro for `Vec<T>`, in currying ways by `partial_left_last_one!`().
 */
 #[macro_export]
@@ -148,6 +158,11 @@ pub fn foldl<T, B>(f: impl FnMut(B, T) -> B, initial: B, v: Vec<T>) -> B {
 #[inline]
 pub fn foldr<T, B>(f: impl FnMut(B, T) -> B, initial: B, v: Vec<T>) -> B {
     v.into_iter().rev().fold(initial, f)
+}
+
+#[inline]
+pub fn reverse<T>(v: Vec<T>) -> Vec<T> {
+    v.into_iter().rev().collect::<Vec<T>>()
 }
 
 #[inline]
@@ -252,5 +267,10 @@ fn test_foldl_foldr() {
 
 #[test]
 fn test_contains() {
-    assert_eq!(true, contains!(&4)(vec!(1, 2, 3, 4)));
+    assert_eq!(true, contains!(&4)(vec![1, 2, 3, 4]));
+}
+
+#[test]
+fn test_reverse() {
+    assert_eq!(vec![4, 3, 2, 1], reverse!()(vec![1, 2, 3, 4]));
 }
