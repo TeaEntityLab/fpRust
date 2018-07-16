@@ -30,74 +30,73 @@ macro_rules! compose {
 }
 
 /**
-`Partial` application macro with one argument for a pre-defined function,
-and currying data `Vec<T>` by returning closure with one data argument.
+`Spread` the variadic arguments and call the given funciton.
 */
 #[macro_export]
-macro_rules! partial_vec {
-    ($func:expr, $second:expr) => {
-        |v| $func($second, v)
+macro_rules! spread_and_call {
+    ($func:expr, $($x:expr), *) => {
+        $func($($x), *);
     };
 }
 
 /**
-`Partial` application macro with two arguments for a pre-defined function,
-and currying data `Vec<T>` by returning closure with one data argument.
+`Partial` application macro with variadic arguments for a pre-defined function,
+and currying the lastest one argument by returning closure.
 */
 #[macro_export]
-macro_rules! partial_vec_arg2 {
-    ($func:expr, $second:expr, $third:expr) => {
-        |v| $func($second, $third, v)
+macro_rules! partial_left_last_one {
+    ($func:expr, $($x:expr), *) => {
+        |v| spread_and_call!($func, $($x), *, v)
     };
 }
 
 /**
-`Map` macro for `Vec<T>`, in currying ways by `partial_vec!`().
+`Map` macro for `Vec<T>`, in currying ways by `partial_left_last_one!`().
 */
 #[macro_export]
 macro_rules! map {
     ($func:expr) => {
-        partial_vec!(map, $func)
+        partial_left_last_one!(map, $func)
     };
 }
 
 /**
-`Filter` macro for `Vec<T>`, in currying ways by `partial_vec!`().
+`Filter` macro for `Vec<T>`, in currying ways by `partial_left_last_one!`().
 */
 #[macro_export]
 macro_rules! filter {
     ($func:expr) => {
-        partial_vec!(filter, $func)
+        partial_left_last_one!(filter, $func)
     };
 }
 
 /**
-`Reduce` macro for `Vec<T>`, in currying ways by `partial_vec!`().
+`Reduce` macro for `Vec<T>`, in currying ways by `partial_left_last_one!`().
 */
 #[macro_export]
 macro_rules! reduce {
     ($func:expr) => {
-        partial_vec!(reduce, $func)
+        partial_left_last_one!(reduce, $func)
     };
 }
 
 /**
-`Foldl` macro for `Vec<T>`, in currying ways by `partial_vec_arg2!`().
+`Foldl` macro for `Vec<T>`, in currying ways by `partial_left_last_one!`().
 */
 #[macro_export]
 macro_rules! foldl {
     ($func:expr, $second:expr) => {
-        partial_vec_arg2!(foldl, $func, $second)
+        partial_left_last_one!(foldl, $func, $second)
     };
 }
 
 /**
-`Foldr` macro for `Vec<T>`, in currying ways by `partial_vec_arg2!`().
+`Foldr` macro for `Vec<T>`, in currying ways by `partial_left_last_one!`().
 */
 #[macro_export]
 macro_rules! foldr {
     ($func:expr, $second:expr) => {
-        partial_vec_arg2!(foldr, $func, $second)
+        partial_left_last_one!(foldr, $func, $second)
     };
 }
 
