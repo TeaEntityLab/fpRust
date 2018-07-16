@@ -4,7 +4,7 @@ of general functional programming features.
 */
 
 /**
-Compose functions.
+Pipe functions.
 
 *NOTE*: Credit https://stackoverflow.com/questions/45786955/how-to-compose-functions-in-rust
 */
@@ -15,6 +15,12 @@ macro_rules! pipe {
         compose_two($head, pipe!($($tail),+))
     };
 }
+
+/**
+Compose functions.
+
+*NOTE*: Credit https://stackoverflow.com/questions/45786955/how-to-compose-functions-in-rust
+*/
 #[macro_export]
 macro_rules! compose {
     ( $last:expr ) => { $last };
@@ -22,28 +28,76 @@ macro_rules! compose {
         compose_two(compose!($($tail),+), $head)
     };
 }
+
+/**
+`Partial` application macro with one argument for a pre-defined function,
+and currying data `Vec<T>` by returning closure with one data argument.
+*/
 #[macro_export]
 macro_rules! partial_vec {
     ($func:expr, $second:expr) => {
         |v| $func($second, v)
     };
 }
+
+/**
+`Partial` application macro with two arguments for a pre-defined function,
+and currying data `Vec<T>` by returning closure with one data argument.
+*/
+#[macro_export]
+macro_rules! partial_vec_arg2 {
+    ($func:expr, $second:expr, $third:expr) => {
+        |v| $func($second, $third, v)
+    };
+}
+
+/**
+`Map` macro for `Vec<T>`, in currying ways by `partial_vec!`().
+*/
 #[macro_export]
 macro_rules! map {
     ($func:expr) => {
         partial_vec!(map, $func)
     };
 }
+
+/**
+`Filter` macro for `Vec<T>`, in currying ways by `partial_vec!`().
+*/
 #[macro_export]
 macro_rules! filter {
     ($func:expr) => {
         partial_vec!(filter, $func)
     };
 }
+
+/**
+`Reduce` macro for `Vec<T>`, in currying ways by `partial_vec!`().
+*/
 #[macro_export]
 macro_rules! reduce {
     ($func:expr) => {
         partial_vec!(reduce, $func)
+    };
+}
+
+/**
+`Foldl` macro for `Vec<T>`, in currying ways by `partial_vec_arg2!`().
+*/
+#[macro_export]
+macro_rules! foldl {
+    ($func:expr, $second:expr) => {
+        partial_vec_arg2!(foldl, $func, $second)
+    };
+}
+
+/**
+`Foldr` macro for `Vec<T>`, in currying ways by `partial_vec_arg2!`().
+*/
+#[macro_export]
+macro_rules! foldr {
+    ($func:expr, $second:expr) => {
+        partial_vec_arg2!(foldr, $func, $second)
     };
 }
 
@@ -75,6 +129,16 @@ pub fn map<T, B>(f: impl FnMut(T) -> B, v: Vec<T>) -> Vec<B> {
 #[inline]
 pub fn filter<'r, T: 'r>(f: impl FnMut(&T) -> bool, v: Vec<T>) -> Vec<T> {
     v.into_iter().filter(f).into_iter().collect::<Vec<T>>()
+}
+
+#[inline]
+pub fn foldl<T, B>(f: impl FnMut(B, T) -> B, initial: B, v: Vec<T>) -> B {
+    v.into_iter().fold(initial, f)
+}
+
+#[inline]
+pub fn foldr<T, B>(f: impl FnMut(B, T) -> B, initial: B, v: Vec<T>) -> B {
+    v.into_iter().rev().fold(initial, f)
 }
 
 /**
@@ -129,7 +193,39 @@ fn test_compose() {
 
 #[test]
 fn test_map_reduce_filter() {
-    let result = (compose!(reduce!(|a, b| a * b), filter!(|x| *x < 6), map!(|x| x * 2)))(vec![1, 2, 3, 4]);
+    let result =
+        (compose!(reduce!(|a, b| a * b), filter!(|x| *x < 6), map!(|x| x * 2)))(vec![1, 2, 3, 4]);
     assert_eq!(Some(8), result);
     println!("test_map_reduce_filter Result is {:?}", result);
+}
+
+#[test]
+fn test_foldl_foldr() {
+    // foldl!(f, initial)
+    let result = (compose!(
+        foldl!(|a, b| {
+            if a < 4 {
+                return a + b;
+            }
+            return a;
+        }, 0),
+        filter!(|x| *x < 6),
+        map!(|x| x * 2)
+    ))(vec![1, 2, 3, 4]);
+    assert_eq!(6, result);
+    println!("foldl Result is {:?}", result);
+
+    // foldr!(f, initial)
+    let result = (compose!(
+        foldr!(|a, b| {
+            if a < 4 {
+                return a + b;
+            }
+            return a;
+        }, 0),
+        filter!(|x| *x < 6),
+        map!(|x| x * 2)
+    ))(vec![1, 2, 3, 4]);
+    assert_eq!(4, result);
+    println!("foldr Result is {:?}", result);
 }
