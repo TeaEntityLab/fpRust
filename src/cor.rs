@@ -677,22 +677,13 @@ fn test_cor_do_m_pattern() {
             String,
             i16
         );
-        let _v1 = &*_v1.lock().unwrap();
-        let _v2 = &*_v2.lock().unwrap();
-        let _v3 = &*_v3.lock().unwrap();
+        let _v1 = _v1.lock().unwrap();
+        let _v2 = _v2.lock().unwrap();
+        let _v3 = _v3.lock().unwrap();
         ret [
-            match _v1 {
-                Some(_x) => _x.clone(),
-                None => String::from(""),
-            },
-            match _v2 {
-                Some(_x) => _x.clone(),
-                None => String::from(""),
-            },
-            match _v3 {
-                Some(_x) => _x.clone(),
-                None => String::from(""),
-            },
+            _v1.clone().unwrap(),
+            _v2.clone().unwrap(),
+            _v3.clone().unwrap(),
             _v4,
         ].join("")
     };
