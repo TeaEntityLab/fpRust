@@ -265,21 +265,60 @@ use std::thread;
 use fp_rust::cor::Cor;
 
 
-do_m!(|this| {
+let v = Arc::new(Mutex::new(0u16));
+
+let _v = v.clone();
+do_m!(move |this| {
     println!("test_cor_do_m started");
 
-    let cor_inner = cor_newmutex_and_start!(
+    let cor_inner1 = cor_newmutex_and_start!(
         |this| {
-            println!("cor_inner started");
-
-            let s = cor_yield!(this, Some(String::from("given_to_outside")));
-            println!("cor inside {:?}", s);
+            let s = cor_yield!(this, Some(String::from("1")));
+            println!("cor_inner1 {:?}", s);
         },
         String,
         i16
     );
-    cor_yield_from!(this, cor_inner, Some(3366));
+    let cor_inner2 = cor_newmutex_and_start!(
+        |this| {
+            let s = cor_yield!(this, Some(String::from("2")));
+            println!("cor_inner2 {:?}", s);
+        },
+        String,
+        i16
+    );
+    let cor_inner3 = cor_newmutex_and_start!(
+        |this| {
+            let s = cor_yield!(this, Some(String::from("3")));
+            println!("cor_inner3 {:?}", s);
+        },
+        String,
+        i16
+    );
+
+    assert_eq!(
+        Some(String::from("1")),
+        cor_yield_from!(this, cor_inner1, Some(1))
+    );
+    assert_eq!(
+        Some(String::from("2")),
+        cor_yield_from!(this, cor_inner2, Some(2))
+    );
+    assert_eq!(
+        Some(String::from("3")),
+        cor_yield_from!(this, cor_inner3, Some(3))
+    );
+
+    {
+        (*_v.lock().unwrap()) = 5566;
+    }
 });
+
+let _v = v.clone();
+
+{
+    assert_eq!(5566, *_v.lock().unwrap());
+}
 ```
 
 ## Fp Functions (Compose, Pipe, Map, Reduce, Filter)
