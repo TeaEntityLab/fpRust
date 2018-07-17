@@ -33,6 +33,75 @@ macro_rules! do_m {
 }
 
 /**
+Run codes inside a `doM` block(`Haskell` `do notation`)
+(this is a `sync` macro)
+*/
+#[macro_export]
+macro_rules! do_m_pattern {
+    (
+        let $p:pat = $e:expr ; $( $t:tt )*
+    ) => (
+        { let $p = $e ; do_m_pattern! { $( $t )* } }
+    );
+    (
+        let $p:ident : $ty:ty = $e:expr ; $( $t:tt )*
+    ) => (
+        { let $p:$ty = $e ; do_m_pattern! { $( $t )* } }
+    );
+    (
+        let mut $p:ident : $ty:ty = $e:expr ; $( $t:tt )*
+    ) => (
+        { let mut $p:$ty = $e ; do_m_pattern! { $( $t )* } }
+    );
+    (
+        $p:ident = $e:expr ; $( $t:tt )*
+    ) => (
+        { $p = $e ; do_m_pattern! { $( $t )* } }
+    );
+    (
+        exec $b:expr ; $( $t:tt )*
+    ) => (
+        { $b ; do_m_pattern! { $( $t )* } }
+    );
+    (
+        ret $e:expr
+    ) => (
+        // vec!()
+        $e
+    );
+
+    ($p:ident $ty:ty, $val:expr, yield_from $cor:expr; $($t:tt)*) => ({
+        let $p: Arc<Mutex<Option<$ty>>> = Arc::new(Mutex::new(None::<$ty>));
+        let _p = $p.clone();
+
+        let _cor = $cor.clone();
+        let mut _do_m = cor_newmutex!(
+            move |this| {
+                let mut p = _p.lock().unwrap();
+                *p = cor_yield_from!(this, _cor, $val);
+            },
+            (),
+            ()
+        );
+
+        {
+            let _do_m2 = _do_m.clone();
+            let mut do_m = _do_m2.lock().unwrap();
+            do_m.set_async(false);
+        }
+
+        cor_start!(_do_m);
+
+        do_m_pattern! { $( $t )* }
+
+        // let mut v = vec!(p);
+        // let next = &mut do_m_pattern! { $( $t )* };
+        // v.append(next);
+        // v
+    });
+}
+
+/**
 Define a new `Cor` with type.
 It will return a `Arc<Mutex<Cor>>`.
 
@@ -572,6 +641,63 @@ fn test_cor_do_m() {
     {
         assert_eq!("123", *_v.lock().unwrap());
     }
+}
+
+#[test]
+fn test_cor_do_m_pattern() {
+    let _r = do_m_pattern! {
+        let mut _v4 = String::from("");
+        _v4 = String::from("4");
+
+        exec {
+            println!("do_m_pattern _v4:{:?}", _v4)
+        };
+
+        _v1 String, Some(1), yield_from cor_newmutex_and_start!(
+            |this| {
+                let s = cor_yield!(this, Some(String::from("1")));
+                println!("cor_inner1 {:?}", s);
+            },
+            String,
+            i16
+        );
+        _v2 String, Some(2), yield_from cor_newmutex_and_start!(
+            |this| {
+                let s = cor_yield!(this, Some(String::from("2")));
+                println!("cor_inner2 {:?}", s);
+            },
+            String,
+            i16
+        );
+        _v3 String, Some(3), yield_from cor_newmutex_and_start!(
+            |this| {
+                let s = cor_yield!(this, Some(String::from("3")));
+                println!("cor_inner3 {:?}", s);
+            },
+            String,
+            i16
+        );
+        let _v1 = &*_v1.lock().unwrap();
+        let _v2 = &*_v2.lock().unwrap();
+        let _v3 = &*_v3.lock().unwrap();
+        ret [
+            match _v1 {
+                Some(_x) => _x.clone(),
+                None => String::from(""),
+            },
+            match _v2 {
+                Some(_x) => _x.clone(),
+                None => String::from(""),
+            },
+            match _v3 {
+                Some(_x) => _x.clone(),
+                None => String::from(""),
+            },
+            _v4,
+        ].join("")
+    };
+
+    assert_eq!("1234", _r);
 }
 
 #[test]
