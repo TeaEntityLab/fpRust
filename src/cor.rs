@@ -9,6 +9,30 @@ use std::sync::{
 use std::thread;
 
 /**
+Run codes inside a `doM` block(`Haskell` `do notation`)
+(this is a `sync` macro)
+
+# Arguments
+
+* `func` - The given `FnMut`, the execution code of `Cor`.
+
+*/
+#[macro_export]
+macro_rules! do_m {
+    ($this:expr) => {{
+        let mut _do_m = cor_newmutex!($this, (), ());
+
+        {
+            let _do_m2 = _do_m.clone();
+            let mut do_m = _do_m2.lock().unwrap();
+            do_m.set_async(false);
+        }
+
+        cor_start!(_do_m);
+    }};
+}
+
+/**
 Define a new `Cor` with type.
 It will return a `Arc<Mutex<Cor>>`.
 
@@ -21,9 +45,29 @@ It will return a `Arc<Mutex<Cor>>`.
 */
 #[macro_export]
 macro_rules! cor_newmutex {
-    ( $func:expr, $RETURN:ty, $RECEIVE:ty) => {
+    ($func:expr, $RETURN:ty, $RECEIVE:ty) => {
         <Cor<$RETURN, $RECEIVE>>::new_with_mutex($func)
     };
+}
+
+/**
+Define a new `Cor` with type and start it immediately.
+It will return a `Arc<Mutex<Cor>>`.
+
+# Arguments
+
+* `func` - The given `FnMut`, the execution code of `Cor`.
+* `RETURN` - The type of returned data
+* `RECEIVE` - The type of received data
+
+*/
+#[macro_export]
+macro_rules! cor_newmutex_and_start {
+    ($func:expr, $RETURN:ty, $RECEIVE:ty) => {{
+        let new_one = <Cor<$RETURN, $RECEIVE>>::new_with_mutex($func);
+        cor_start!(new_one);
+        new_one
+    }};
 }
 
 /**
@@ -43,7 +87,7 @@ such as `Python`, `Lua`, `ECMASript`...etc.
 */
 #[macro_export]
 macro_rules! cor_yield {
-    ( $this:expr, $given_to_outside:expr) => {
+    ($this:expr, $given_to_outside:expr) => {
         Cor::yield_ref($this.clone(), $given_to_outside)
     };
 }
@@ -66,8 +110,26 @@ such as `Python`, `Lua`, `ECMASript`...etc.
 */
 #[macro_export]
 macro_rules! cor_yield_from {
-    ( $this:expr, $target:expr, $sent_to_inside:expr) => {
+    ($this:expr, $target:expr, $sent_to_inside:expr) => {
         Cor::yield_from($this.clone(), $target.clone(), $sent_to_inside)
+    };
+}
+
+/**
+
+Start `this` `Cor`.
+
+# Arguments
+
+* `this` - The target `Cor` to start.
+
+*NOTE*: Beware the deadlock if it's sync(waiting for each other), except the entry point.
+
+*/
+#[macro_export]
+macro_rules! cor_start {
+    ($this:expr) => {
+        Cor::start($this.clone())
     };
 }
 
@@ -462,28 +524,56 @@ impl<RETURN: Send + Sync + Clone + 'static, RECEIVE: Send + Sync + Clone + 'stat
     }
     */
 }
+
+#[test]
+fn test_cor_do_m() {
+    do_m!(|this| {
+        println!("test_cor_do_m started");
+
+        let cor_inner = cor_newmutex_and_start!(
+            |this| {
+                println!("cor_inner started");
+
+                let s = cor_yield!(this, Some(String::from("given_to_outside")));
+                println!("cor inside {:?}", s);
+            },
+            String,
+            i16
+        );
+        cor_yield_from!(this, cor_inner, Some(3366));
+    });
+}
+
 #[test]
 fn test_cor_new() {
     use std::time;
 
     println!("test_cor_new");
 
-    let _cor1 = cor_newmutex!(|this| {
-        println!("cor1 started");
+    let _cor1 = cor_newmutex!(
+        |this| {
+            println!("cor1 started");
 
-        let s = cor_yield!(this, Some(String::from("given_to_outside")));
-        println!("cor1 {:?}", s);
-    }, String, i16);
+            let s = cor_yield!(this, Some(String::from("given_to_outside")));
+            println!("cor1 {:?}", s);
+        },
+        String,
+        i16
+    );
     let cor1 = _cor1.clone();
 
-    let _cor2 = cor_newmutex!(move |this| {
-        println!("cor2 started");
+    let _cor2 = cor_newmutex!(
+        move |this| {
+            println!("cor2 started");
 
-        println!("cor2 yield_from before");
+            println!("cor2 yield_from before");
 
-        let s = cor_yield_from!(this, cor1, Some(3));
-        println!("cor2 {:?}", s);
-    }, i16, i16);
+            let s = cor_yield_from!(this, cor1, Some(3));
+            println!("cor2 {:?}", s);
+        },
+        i16,
+        i16
+    );
 
     {
         let cor1 = _cor1.clone();
@@ -495,8 +585,8 @@ fn test_cor_new() {
         cor2.lock().unwrap().set_async(false);
         // NOTE cor2 is the entry point, so it could be sync without any deadlock.
     }
-    Cor::start(_cor1.clone());
-    Cor::start(_cor2.clone());
+    cor_start!(_cor1);
+    cor_start!(_cor2);
 
     thread::sleep(time::Duration::from_millis(100));
 }

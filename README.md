@@ -41,6 +41,9 @@ Thus I implemented fpRust. I hope you would like it :)
   * yield/yieldFrom
   * async/sync
 
+* DoNotation (*`fp_rust::cor::Cor`*)
+  * Haskell DoNotation-like, *macro*
+
 ~~* Pattern matching~~
 
 
@@ -207,22 +210,30 @@ use fp_rust::cor::Cor;
 
 println!("test_cor_new");
 
-let _cor1 = cor_newmutex!(|this| {
-    println!("cor1 started");
+let _cor1 = cor_newmutex!(
+    |this| {
+        println!("cor1 started");
 
-    let s = cor_yield!(this, Some(String::from("given_to_outside")));
-    println!("cor1 {:?}", s);
-}, String, i16);
+        let s = cor_yield!(this, Some(String::from("given_to_outside")));
+        println!("cor1 {:?}", s);
+    },
+    String,
+    i16
+);
 let cor1 = _cor1.clone();
 
-let _cor2 = cor_newmutex!(move |this| {
-    println!("cor2 started");
+let _cor2 = cor_newmutex!(
+    move |this| {
+        println!("cor2 started");
 
-    println!("cor2 yield_from before");
+        println!("cor2 yield_from before");
 
-    let s = cor_yield_from!(this, cor1, Some(3));
-    println!("cor2 {:?}", s);
-}, i16, i16);
+        let s = cor_yield_from!(this, cor1, Some(3));
+        println!("cor2 {:?}", s);
+    },
+    i16,
+    i16
+);
 
 {
     let cor1 = _cor1.clone();
@@ -234,10 +245,41 @@ let _cor2 = cor_newmutex!(move |this| {
     cor2.lock().unwrap().set_async(false);
     // NOTE cor2 is the entry point, so it could be sync without any deadlock.
 }
-Cor::start(_cor1.clone());
-Cor::start(_cor2.clone());
+cor_start!(_cor1);
+cor_start!(_cor2);
 
 thread::sleep(time::Duration::from_millis(100));
+```
+
+## Do Notation (Haskell DoNotation-like)
+
+Example:
+```rust
+
+#[macro_use]
+extern crate fp_rust;
+
+use std::time;
+use std::thread;
+
+use fp_rust::cor::Cor;
+
+
+do_m!(|this| {
+    println!("test_cor_do_m started");
+
+    let cor_inner = cor_newmutex_and_start!(
+        |this| {
+            println!("cor_inner started");
+
+            let s = cor_yield!(this, Some(String::from("given_to_outside")));
+            println!("cor inside {:?}", s);
+        },
+        String,
+        i16
+    );
+    cor_yield_from!(this, cor_inner, Some(3366));
+});
 ```
 
 ## Fp Functions (Compose, Pipe, Map, Reduce, Filter)
