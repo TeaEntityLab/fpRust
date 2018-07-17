@@ -265,7 +265,7 @@ use std::thread;
 use fp_rust::cor::Cor;
 
 
-let v = Arc::new(Mutex::new(0u16));
+let v = Arc::new(Mutex::new(String::from("")));
 
 let _v = v.clone();
 do_m!(move |this| {
@@ -296,28 +296,19 @@ do_m!(move |this| {
         i16
     );
 
-    assert_eq!(
-        Some(String::from("1")),
-        cor_yield_from!(this, cor_inner1, Some(1))
-    );
-    assert_eq!(
-        Some(String::from("2")),
-        cor_yield_from!(this, cor_inner2, Some(2))
-    );
-    assert_eq!(
-        Some(String::from("3")),
-        cor_yield_from!(this, cor_inner3, Some(3))
-    );
-
     {
-        (*_v.lock().unwrap()) = 5566;
+        (*_v.lock().unwrap()) = [
+            cor_yield_from!(this, cor_inner1, Some(1)).unwrap(),
+            cor_yield_from!(this, cor_inner2, Some(2)).unwrap(),
+            cor_yield_from!(this, cor_inner3, Some(3)).unwrap(),
+        ].join("");
     }
 });
 
 let _v = v.clone();
 
 {
-    assert_eq!(5566, *_v.lock().unwrap());
+    assert_eq!("123", *_v.lock().unwrap());
 }
 ```
 

@@ -527,7 +527,7 @@ impl<RETURN: Send + Sync + Clone + 'static, RECEIVE: Send + Sync + Clone + 'stat
 
 #[test]
 fn test_cor_do_m() {
-    let v = Arc::new(Mutex::new(0u16));
+    let v = Arc::new(Mutex::new(String::from("")));
 
     let _v = v.clone();
     do_m!(move |this| {
@@ -558,28 +558,19 @@ fn test_cor_do_m() {
             i16
         );
 
-        assert_eq!(
-            Some(String::from("1")),
-            cor_yield_from!(this, cor_inner1, Some(1))
-        );
-        assert_eq!(
-            Some(String::from("2")),
-            cor_yield_from!(this, cor_inner2, Some(2))
-        );
-        assert_eq!(
-            Some(String::from("3")),
-            cor_yield_from!(this, cor_inner3, Some(3))
-        );
-
         {
-            (*_v.lock().unwrap()) = 5566;
+            (*_v.lock().unwrap()) = [
+                cor_yield_from!(this, cor_inner1, Some(1)).unwrap(),
+                cor_yield_from!(this, cor_inner2, Some(2)).unwrap(),
+                cor_yield_from!(this, cor_inner3, Some(3)).unwrap(),
+            ].join("");
         }
     });
 
     let _v = v.clone();
 
     {
-        assert_eq!(5566, *_v.lock().unwrap());
+        assert_eq!("123", *_v.lock().unwrap());
     }
 }
 
