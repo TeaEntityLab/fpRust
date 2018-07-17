@@ -9,6 +9,69 @@ use std::sync::{
 use std::thread;
 
 /**
+Define a new `Cor` with type.
+It will return a `Arc<Mutex<Cor>>`.
+
+# Arguments
+
+* `func` - The given `FnMut`, the execution code of `Cor`.
+* `RETURN` - The type of returned data
+* `RECEIVE` - The type of received data
+
+*/
+#[macro_export]
+macro_rules! cor_newmutex {
+    ( $func:expr, $RETURN:ty, $RECEIVE:ty) => {
+        <Cor<$RETURN, $RECEIVE>>::new_with_mutex($func)
+    };
+}
+
+/**
+Make `this` returns a given `Option<RETURN>` `given_to_outside` to its callee `Cor`,
+and this method returns the `Option<RECEIVE>` value given from outside.
+
+# Arguments
+
+* `this` - The sender when sending `given_to_outside` to callee `Cor`.
+* `given_to_outside` - The value sent by `this` and received by `target`.
+
+# Remarks
+
+This method is implemented according to some coroutine/generator implementations,
+such as `Python`, `Lua`, `ECMASript`...etc.
+
+*/
+#[macro_export]
+macro_rules! cor_yield {
+    ( $this:expr, $given_to_outside:expr) => {
+        Cor::yield_ref($this.clone(), $given_to_outside)
+    };
+}
+
+/**
+Make `this` sends a given `Option<RECEIVETARGET>` to `target`,
+and this method returns the `Option<RETURNTARGET>` response from `target`.
+
+# Arguments
+
+* `this` - The sender when sending `sent_to_inside` to `target`.
+* `target` - The receiver of value `sent_to_inside` sent by `this`.
+* `sent_to_inside` - The value sent by `this` and received by `target`.
+
+# Remarks
+
+This method is implemented according to some coroutine/generator implementations,
+such as `Python`, `Lua`, `ECMASript`...etc.
+
+*/
+#[macro_export]
+macro_rules! cor_yield_from {
+    ( $this:expr, $target:expr, $sent_to_inside:expr) => {
+        Cor::yield_from($this.clone(), $target.clone(), $sent_to_inside)
+    };
+}
+
+/**
 `CorOp` defines a yield action between `Cor` objects.
 
 # Arguments
@@ -405,22 +468,22 @@ fn test_cor_new() {
 
     println!("test_cor_new");
 
-    let _cor1 = <Cor<String, i16>>::new_with_mutex(|this| {
+    let _cor1 = cor_newmutex!(|this| {
         println!("cor1 started");
 
-        let s = Cor::yield_ref(this.clone(), Some(String::from("given_to_outside")));
+        let s = cor_yield!(this, Some(String::from("given_to_outside")));
         println!("cor1 {:?}", s);
-    });
+    }, String, i16);
     let cor1 = _cor1.clone();
 
-    let _cor2 = <Cor<i16, i16>>::new_with_mutex(move |this| {
+    let _cor2 = cor_newmutex!(move |this| {
         println!("cor2 started");
 
         println!("cor2 yield_from before");
 
-        let s = Cor::yield_from(this.clone(), cor1.clone(), Some(3));
+        let s = cor_yield_from!(this, cor1, Some(3));
         println!("cor2 {:?}", s);
-    });
+    }, i16, i16);
 
     {
         let cor1 = _cor1.clone();

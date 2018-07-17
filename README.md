@@ -197,6 +197,7 @@ latch.clone().wait();
 Example:
 ```rust
 
+#[macro_use]
 extern crate fp_rust;
 
 use std::time;
@@ -206,27 +207,27 @@ use fp_rust::cor::Cor;
 
 println!("test_cor_new");
 
-let _cor1 = <Cor<String, i16>>::new_with_mutex(|this| {
+let _cor1 = cor_newmutex!(|this| {
     println!("cor1 started");
 
-    let s = Cor::yield_ref(this.clone(), Some(String::from("given_to_outside")));
+    let s = cor_yield!(this, Some(String::from("given_to_outside")));
     println!("cor1 {:?}", s);
-});
+}, String, i16);
 let cor1 = _cor1.clone();
 
-let _cor2 = <Cor<i16, i16>>::new_with_mutex(move |this| {
+let _cor2 = cor_newmutex!(move |this| {
     println!("cor2 started");
 
     println!("cor2 yield_from before");
 
-    let s = Cor::yield_from(this.clone(), cor1.clone(), Some(3));
+    let s = cor_yield_from!(this, cor1, Some(3));
     println!("cor2 {:?}", s);
-});
+}, i16, i16);
 
 {
     let cor1 = _cor1.clone();
     cor1.lock().unwrap().set_async(true); // NOTE Cor default async
-    // NOTE cor1 should keep async to avoid deadlock waiting.(waiting for each other)
+                                          // NOTE cor1 should keep async to avoid deadlock waiting.(waiting for each other)
 }
 {
     let cor2 = _cor2.clone();
