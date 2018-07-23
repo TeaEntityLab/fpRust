@@ -13,6 +13,27 @@ use std::sync::{Arc, Mutex};
 // pub trait FnMutReturnThreadSafe<X>: FnMut() -> X + Send + Sync + 'static {}
 
 /**
+
+Insert `key-value` pairs into the given `map`
+
+# Arguments
+
+* `target` - The target `HashMap` to insert.
+* `key, value` - `key-value` pairs.
+
+*/
+#[macro_export]
+macro_rules! map_insert {
+    ($target:ident, [
+        $($key:expr, $value:expr,)*
+    ]) => {
+        $(
+            $target.insert($key, $value);
+        )*;
+    };
+}
+
+/**
 Get a mut ref of a specific element of a Vec<T>.
 
 # Arguments
@@ -240,4 +261,23 @@ impl RawFunc {
         let func = &mut *self.func.lock().unwrap();
         (func)();
     }
+}
+
+#[test]
+fn test_map_insert() {
+    use std::collections::HashMap;
+
+    let expected = &mut HashMap::new();
+    expected.insert("1", "2");
+    expected.insert("3", "4");
+    expected.insert("5", "6");
+
+    let actual = &mut HashMap::new();
+    map_insert!(actual, [
+        "1", "2",
+        "3", "4",
+        "5", "6",
+    ]);
+
+    assert_eq!(expected, actual);
 }
