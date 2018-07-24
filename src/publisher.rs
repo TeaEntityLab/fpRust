@@ -22,13 +22,13 @@ and it could be mapped just as Rx-like APIs.
 */
 #[derive(Clone)]
 pub struct Publisher<X, T> {
-    observers: Vec<Arc<T>>,
+    observers: Vec<Arc<Mutex<T>>>,
 
     sub_handler: Option<Arc<Mutex<Handler>>>,
 
     _x: PhantomData<X>,
 }
-impl<X: Send + Sync + 'static + Clone> Publisher<X, SubscriptionFunc<X>> {
+impl<X: Send + Sync + 'static> Publisher<X, SubscriptionFunc<X>> {
     pub fn new() -> Publisher<X, SubscriptionFunc<X>> {
         return Publisher {
             observers: vec![],
@@ -48,27 +48,31 @@ impl<X: Send + Sync + 'static + Clone> Publisher<X, SubscriptionFunc<X>> {
         self.notify_observers(Arc::new(val));
     }
 
-    pub fn subscribe(&mut self, s: Arc<SubscriptionFunc<X>>) -> Arc<SubscriptionFunc<X>> {
+    pub fn subscribe(
+        &mut self,
+        s: Arc<Mutex<SubscriptionFunc<X>>>,
+    ) -> Arc<Mutex<SubscriptionFunc<X>>> {
         self.add_observer(s.clone());
         s
     }
     pub fn subscribe_fn(
         &mut self,
         func: impl FnMut(Arc<X>) + Send + Sync + 'static,
-    ) -> Arc<SubscriptionFunc<X>> {
-        self.subscribe(Arc::new(SubscriptionFunc::new(func)))
+    ) -> Arc<Mutex<SubscriptionFunc<X>>> {
+        self.subscribe(Arc::new(Mutex::new(SubscriptionFunc::new(func))))
     }
-    pub fn map<Z: Send + Sync + 'static + Clone>(
+    pub fn map<Z: Send + Sync + 'static>(
         &mut self,
-        func: impl FnMut(Arc<X>) -> Z + Send + Sync + 'static + Clone,
-    ) -> Arc<SubscriptionFunc<X>> {
-        let _func = Arc::new(func);
+        func: impl FnMut(Arc<X>) -> Z + Send + Sync + 'static,
+    ) -> Arc<Mutex<SubscriptionFunc<X>>> {
+        let _func = Arc::new(Mutex::new(func));
         self.subscribe_fn(move |x: Arc<X>| {
-            let mut func = _func.clone();
-            (Arc::make_mut(&mut func))(x);
+            let _func = _func.clone();
+            let func = &mut *_func.lock().unwrap();
+            (func)(x);
         })
     }
-    pub fn unsubscribe(&mut self, s: Arc<SubscriptionFunc<X>>) {
+    pub fn unsubscribe(&mut self, s: Arc<Mutex<SubscriptionFunc<X>>>) {
         self.delete_observer(s);
     }
 
@@ -76,16 +80,24 @@ impl<X: Send + Sync + 'static + Clone> Publisher<X, SubscriptionFunc<X>> {
         self.sub_handler = h;
     }
 }
-impl<X: Send + Sync + 'static + Clone> Observable<X, SubscriptionFunc<X>>
+impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>>
     for Publisher<X, SubscriptionFunc<X>>
 {
-    fn add_observer(&mut self, observer: Arc<SubscriptionFunc<X>>) {
+    fn add_observer(&mut self, observer: Arc<Mutex<SubscriptionFunc<X>>>) {
         // println!("add_observer({});", observer);
         self.observers.push(observer);
     }
-    fn delete_observer(&mut self, mut observer: Arc<SubscriptionFunc<X>>) {
+    fn delete_observer(&mut self, observer: Arc<Mutex<SubscriptionFunc<X>>>) {
+        let id;
+        {
+            let _observer = &*observer.lock().unwrap();
+            id = _observer.get_id();
+        }
+
         for (index, obs) in self.observers.clone().iter().enumerate() {
-            if Arc::make_mut(&mut obs.clone()) == Arc::make_mut(&mut observer) {
+            let _obs = obs.clone();
+            let obs = &*_obs.lock().unwrap();
+            if obs.get_id() == id {
                 // println!("delete_observer({});", observer);
                 self.observers.remove(index);
                 return;
@@ -100,9 +112,8 @@ impl<X: Send + Sync + 'static + Clone> Observable<X, SubscriptionFunc<X>>
             let observers = Arc::make_mut(&mut _observers);
 
             for (_, observer) in observers.iter().enumerate() {
-                let mut _observer = observer.clone();
-                let observer = Arc::make_mut(&mut _observer);
-                observer.on_next(val.clone());
+                let mut _observer = observer.lock().unwrap();
+                _observer.on_next(val.clone());
             }
         });
 
@@ -149,12 +160,14 @@ fn test_publisher_new() {
     let latch = CountDownLatch::new(1);
     let latch2 = latch.clone();
 
-    let s = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
+    let s = Arc::new(Mutex::new(SubscriptionFunc::new(move |x: Arc<String>| {
         println!("pub2-s1 I got {:?}", x);
 
+        assert_eq!(true, x != Arc::new(String::from("OKOK3")));
+
         latch2.countdown();
-    }));
-    pub2.subscribe(s);
+    })));
+    pub2.subscribe(s.clone());
     pub2.map(move |x: Arc<String>| {
         println!("pub2-s2 I got {:?}", x);
     });
@@ -175,6 +188,10 @@ fn test_publisher_new() {
 
     pub2.publish(String::from("OKOK"));
     pub2.publish(String::from("OKOK2"));
+
+    pub2.unsubscribe(s.clone());
+
+    pub2.publish(String::from("OKOK3"));
 
     latch.clone().wait();
 }

@@ -166,12 +166,12 @@ let mut pub2 = Publisher::new_with_handlers(Some(_h.clone()));
 let latch = CountDownLatch::new(1);
 let latch2 = latch.clone();
 
-let s = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
+let s = Arc::new(Mutex::new(SubscriptionFunc::new(move |x: Arc<String>| {
     println!("pub2-s1 I got {:?}", x);
 
     latch2.countdown();
-}));
-pub2.subscribe(s);
+})));
+pub2.subscribe(s.clone());
 pub2.map(move |x: Arc<String>| {
     println!("pub2-s2 I got {:?}", x);
 });
@@ -192,6 +192,10 @@ pub2.map(move |x: Arc<String>| {
 
 pub2.publish(String::from("OKOK"));
 pub2.publish(String::from("OKOK2"));
+
+pub2.unsubscribe(s.clone());
+
+pub2.publish(String::from("OKOK3"));
 
 latch.clone().wait();
 ```

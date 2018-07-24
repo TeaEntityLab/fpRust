@@ -109,7 +109,7 @@ pub trait Observable<X, T: Subscription<X>> {
     * `observer` - The given `Subscription`.
 
     */
-    fn add_observer(&mut self, observer: Arc<T>);
+    fn add_observer(&mut self, observer: Arc<Mutex<T>>);
 
     /**
     Remove the observer.
@@ -119,7 +119,7 @@ pub trait Observable<X, T: Subscription<X>> {
     * `observer` - The given `Subscription`.
 
     */
-    fn delete_observer(&mut self, observer: Arc<T>);
+    fn delete_observer(&mut self, observer: Arc<Mutex<T>>);
 
     /**
     Notify all `Subscription` subscribers with a given value `Arc<X>`.
@@ -186,6 +186,10 @@ impl<T: Send + Sync + 'static> SubscriptionFunc<T> {
             id: format!("{:?}", since_the_epoch),
             receiver: RawReceiver::new(func),
         };
+    }
+
+    pub fn get_id(&self) -> String {
+        self.id.clone()
     }
 }
 
