@@ -223,6 +223,8 @@ pub struct CorOp<RETURN: 'static, RECEIVE: 'static> {
 }
 impl<RETURN, RECEIVE> CorOp<RETURN, RECEIVE> {}
 
+type CorEffect<RETURN, RECEIVE> = FnMut(Arc<Mutex<Cor<RETURN, RECEIVE>>>) + Send + Sync + 'static;
+
 /**
 The `Cor` implements a *PythonicGenerator-like Coroutine*.
 
@@ -242,13 +244,14 @@ and use `yield_ref`()/`yield_none`() to return my response to the callee of mine
 */
 #[derive(Clone)]
 pub struct Cor<RETURN: 'static, RECEIVE: 'static> {
+
     async: bool,
 
     started_alive: Arc<Mutex<(AtomicBool, AtomicBool)>>,
 
     op_ch_sender: Arc<Mutex<Sender<CorOp<RETURN, RECEIVE>>>>,
     op_ch_receiver: Arc<Mutex<Receiver<CorOp<RETURN, RECEIVE>>>>,
-    effect: Arc<Mutex<FnMut(Arc<Mutex<Cor<RETURN, RECEIVE>>>) + Send + Sync + 'static>>,
+    effect: Arc<Mutex<CorEffect<RETURN, RECEIVE>>>,
 }
 impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, RECEIVE> {
     /**
@@ -339,11 +342,8 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
                 drop(_result_ch_sender.lock().unwrap());
             }
 
-            match result.ok() {
-                Some(_x) => {
-                    return _x;
-                }
-                None => {}
+            if let Ok(_x) = result {
+                return _x;
             }
         }
 
@@ -404,15 +404,12 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
             op = op_ch.recv();
         }
 
-        match op.ok() {
-            Some(_x) => {
-                {
-                    let _result = _x.result_ch_sender.lock().unwrap().send(given_to_outside);
-                }
-
-                return _x.val;
+        if let Ok(_x) = op {
+            {
+                let _result = _x.result_ch_sender.lock().unwrap().send(given_to_outside);
             }
-            None => {}
+
+            return _x.val;
         }
 
         None
