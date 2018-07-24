@@ -27,43 +27,43 @@ pub struct Maybe<T> {
 impl<T: Clone + 'static> Maybe<T> {
     pub fn option(&self) -> Option<T> {
         let r = &*self.r.lock().unwrap();
-        return r.clone();
+        r.clone()
     }
     pub fn unwrap(&self) -> T {
         let r = &*self.r.lock().unwrap();
-        return r.clone().unwrap();
+        r.clone().unwrap()
     }
     pub fn or(&self, val: T) -> T {
         let r = &*self.r.lock().unwrap();
-        return r.clone().unwrap_or(val);
+        r.clone().unwrap_or(val)
     }
 }
 
 impl<T: 'static> Maybe<T> {
     pub fn just(r: Option<T>) -> Maybe<T> {
-        return Maybe {
+        Maybe {
             r: Arc::new(Mutex::new(r)),
-        };
+        }
     }
     pub fn of(r: Option<T>) -> Maybe<T> {
-        return Maybe::just(r);
+        Maybe::just(r)
     }
     pub fn val(r: T) -> Maybe<T> {
-        return Maybe::just(Some(r));
+        Maybe::just(Some(r))
     }
 
     pub fn present(&self) -> bool {
         let r = &*self.r.lock().unwrap();
         match r {
-            Some(_x) => return true,
-            None => return false,
+            Some(_x) => true,
+            None => false,
         }
     }
     pub fn null(&self) -> bool {
         let r = &*self.r.lock().unwrap();
         match r {
-            Some(_x) => return false,
-            None => return true,
+            Some(_x) => false,
+            None => true,
         }
     }
     pub fn let_do<F>(&self, func: F)
@@ -82,7 +82,7 @@ impl<T: 'static> Maybe<T> {
         F: FnOnce(&Option<T>) -> Maybe<G>,
     {
         let r = &*self.r.lock().unwrap();
-        return func(&r);
+        func(&r)
     }
     pub fn map<F, G>(&self, func: F) -> Maybe<G>
     where
@@ -90,34 +90,34 @@ impl<T: 'static> Maybe<T> {
         G: 'static,
     {
         let r = &*self.r.lock().unwrap();
-        return Maybe::just(func(&r));
+        Maybe::just(func(&r))
     }
     pub fn bind<F, G>(&self, func: F) -> Maybe<G>
     where
         F: FnOnce(&Option<T>) -> Option<G>,
         G: 'static,
     {
-        return self.map(func);
+        self.map(func)
     }
     pub fn then<F, G>(&self, func: F) -> Maybe<G>
     where
         F: FnOnce(&Option<T>) -> Option<G>,
         G: 'static,
     {
-        return self.map(func);
+        self.map(func)
     }
     pub fn chain<F, G>(&self, func: F) -> Maybe<G>
     where
         F: FnOnce(&Option<T>) -> Maybe<G>,
     {
-        return self.fmap(func);
+        self.fmap(func)
     }
-    pub fn ap<F, G>(&self, maybe_func: Maybe<F>) -> Maybe<G>
+    pub fn ap<F, G>(&self, maybe_func: &Maybe<F>) -> Maybe<G>
     where
         F: FnOnce(&Option<T>) -> Option<G> + Clone + 'static,
         G: 'static,
     {
-        return maybe_func.chain(|f| self.map(f.clone().unwrap()));
+        maybe_func.chain(|f| self.map(f.clone().unwrap()))
     }
 }
 
@@ -166,7 +166,7 @@ fn test_maybe_flatmap() {
     assert_eq!(
         true,
         Maybe::val(1)
-            .ap(Maybe::val(|x: &Option<i16>| if x.unwrap() > 0 {
+            .ap(&Maybe::val(|x: &Option<i16>| if x.unwrap() > 0 {
                 return Some(true);
             } else {
                 return Some(false);

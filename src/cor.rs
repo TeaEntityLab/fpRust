@@ -311,7 +311,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
         // me MutexGuard lifetime block
         {
             let _me = this.clone();
-            let mut me = _me.lock().unwrap();
+            let me = _me.lock().unwrap();
             if !me.is_alive() {
                 return None;
             }
@@ -347,7 +347,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
             }
         }
 
-        return None;
+        None
     }
 
     /**
@@ -365,7 +365,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
 
     */
     pub fn yield_none(this: Arc<Mutex<Cor<RETURN, RECEIVE>>>) -> Option<RECEIVE> {
-        return Cor::yield_ref(this, None);
+        Cor::yield_ref(this, None)
     }
 
     /**
@@ -391,7 +391,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
         // me MutexGuard lifetime block
         {
             let _me = this.clone();
-            let mut me = _me.lock().unwrap();
+            let me = _me.lock().unwrap();
             if !me.is_alive() {
                 return None;
             }
@@ -415,7 +415,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
             None => {}
         }
 
-        return None;
+        None
     }
 
     /**
@@ -499,11 +499,11 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
     Return `true` when it did started (no matter it has stopped or not)
 
     */
-    pub fn is_started(&mut self) -> bool {
+    pub fn is_started(&self) -> bool {
         let _started_alive = self.started_alive.clone();
         let started_alive = _started_alive.lock().unwrap();
         let &(ref started, _) = &*started_alive;
-        return started.load(Ordering::SeqCst);
+        started.load(Ordering::SeqCst)
     }
 
     /**
@@ -511,11 +511,11 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
     Return `true` when it has started and not stopped yet.
 
     */
-    pub fn is_alive(&mut self) -> bool {
+    pub fn is_alive(&self) -> bool {
         let _started_alive = self.started_alive.clone();
         let started_alive = _started_alive.lock().unwrap();
         let &(_, ref alive) = &*started_alive;
-        return alive.load(Ordering::SeqCst);
+        alive.load(Ordering::SeqCst)
     }
 
     /**
@@ -565,7 +565,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
             // do: (effect)();
             let _result = _op_ch_sender.lock().unwrap().send(CorOp {
                 // cor: cor,
-                result_ch_sender: result_ch_sender,
+                result_ch_sender,
                 val: given_as_request,
             });
         }

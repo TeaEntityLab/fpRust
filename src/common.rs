@@ -75,12 +75,10 @@ This is a convenience function that gets the `mut ref` of an element of the `Vec
 
 */
 pub fn get_mut<'a, T>(v: &'a mut Vec<T>, index: usize) -> Option<&'a mut T> {
-    let mut i = 0;
-    for elem in v {
+    for (i, elem) in v.into_iter().enumerate() {
         if index == i {
             return Some(elem);
         }
-        i += 1;
     }
 
     None
@@ -145,7 +143,7 @@ for general purposes crossing over many modules of fpRust.
 This is an implementation of Observer Pattern of GoF, and inspired by Rx Subscription.
 
 */
-pub trait Subscription<X>: Send + Sync + 'static + PartialEq {
+pub trait Subscription<X>: Send + Sync + 'static + UniqueId<String> {
     /**
     The callback when `Subscription` received the broadcasted value.
 
@@ -203,10 +201,10 @@ impl<T: Send + Sync + 'static> SubscriptionFunc<T> {
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards");
 
-        return SubscriptionFunc {
+        SubscriptionFunc {
             id: format!("{:?}", since_the_epoch),
             receiver: RawReceiver::new(func),
-        };
+        }
     }
 }
 
@@ -257,10 +255,10 @@ impl<T> RawReceiver<T> {
 
     */
     pub fn new(func: impl FnMut(Arc<T>) + Send + Sync + 'static) -> RawReceiver<T> {
-        return RawReceiver {
+        RawReceiver {
             func: Arc::new(Mutex::new(func)),
             _t: PhantomData,
-        };
+        }
     }
 
     /**
@@ -304,9 +302,9 @@ impl RawFunc {
     where
         T: FnMut() + Send + Sync + 'static,
     {
-        return RawFunc {
+        RawFunc {
             func: Arc::new(Mutex::new(func)),
-        };
+        }
     }
 
     /**

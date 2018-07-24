@@ -28,9 +28,9 @@ pub struct CountDownLatch {
 
 impl CountDownLatch {
     pub fn new(count: u64) -> CountDownLatch {
-        return CountDownLatch {
+        CountDownLatch {
             pair: Arc::new((Arc::new(Mutex::new(count)), Condvar::new())),
-        };
+        }
     }
 
     pub fn countdown(&self) {
@@ -117,22 +117,28 @@ pub struct BlockingQueue<T> {
 //     }
 // }
 
-impl<T> BlockingQueue<T> {
-    pub fn new() -> BlockingQueue<T> {
+impl<T> Default for BlockingQueue<T> {
+    fn default() -> Self {
         let (blocking_sender, blocking_recever) = mpsc::channel();
 
-        return BlockingQueue {
+        BlockingQueue {
             alive: Arc::new(Mutex::new(AtomicBool::new(true))),
             timeout: None,
             panic: false,
             blocking_sender: Arc::new(Mutex::new(blocking_sender)),
             blocking_recever: Arc::new(Mutex::new(blocking_recever)),
-        };
+        }
+    }
+}
+
+impl<T> BlockingQueue<T> {
+    pub fn new() -> BlockingQueue<T> {
+        Default::default()
     }
 
-    pub fn is_alive(&mut self) -> bool {
+    pub fn is_alive(&self) -> bool {
         let alive = &self.alive.lock().unwrap();
-        return alive.load(Ordering::SeqCst);
+        alive.load(Ordering::SeqCst)
     }
 
     pub fn stop(&mut self) {
@@ -176,7 +182,7 @@ impl<T: 'static + Send> Queue<T> for BlockingQueue<T> {
                 panic!(result.err());
             }
 
-            return result.ok();
+            result.ok()
         }
     }
 
@@ -187,31 +193,29 @@ impl<T: 'static + Send> Queue<T> for BlockingQueue<T> {
     }
 
     fn take(&mut self) -> Option<T> {
-        loop {
-            if !self.is_alive() {
-                return None::<T>;
-            }
+        if !self.is_alive() {
+            return None::<T>;
+        }
 
-            {
-                match self.timeout {
-                    Some(duration) => {
-                        let result = self.blocking_recever.lock().unwrap().recv_timeout(duration);
+        {
+            match self.timeout {
+                Some(duration) => {
+                    let result = self.blocking_recever.lock().unwrap().recv_timeout(duration);
 
-                        if self.panic && result.is_err() {
-                            panic!(result.err());
-                        }
-
-                        return result.ok();
+                    if self.panic && result.is_err() {
+                        panic!(result.err());
                     }
-                    None => {
-                        let result = self.blocking_recever.lock().unwrap().recv();
 
-                        if self.panic && result.is_err() {
-                            panic!(result.err());
-                        }
+                    result.ok()
+                }
+                None => {
+                    let result = self.blocking_recever.lock().unwrap().recv();
 
-                        return result.ok();
+                    if self.panic && result.is_err() {
+                        panic!(result.err());
                     }
+
+                    result.ok()
                 }
             }
         }

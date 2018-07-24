@@ -81,17 +81,23 @@ pub struct HandlerThread {
     handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
 }
 
-impl HandlerThread {
-    pub fn new() -> HandlerThread {
-        return HandlerThread {
+impl Default for HandlerThread {
+    fn default() -> Self {
+        HandlerThread {
             started_alive: Arc::new(Mutex::new((AtomicBool::new(false), AtomicBool::new(false)))),
             inner: Arc::new(HandlerThreadInner::new()),
 
             handle: Arc::new(Mutex::new(None)),
-        };
+        }
+    }
+}
+
+impl HandlerThread {
+    pub fn new() -> HandlerThread {
+        Default::default()
     }
     pub fn new_with_mutex() -> Arc<Mutex<HandlerThread>> {
-        return Arc::new(Mutex::new(HandlerThread::new()));
+        Arc::new(Mutex::new(HandlerThread::new()))
     }
 }
 
@@ -100,14 +106,14 @@ impl Handler for HandlerThread {
         let _started_alive = self.started_alive.clone();
         let started_alive = _started_alive.lock().unwrap();
         let &(ref started, _) = &*started_alive;
-        return started.load(Ordering::SeqCst);
+        started.load(Ordering::SeqCst)
     }
 
     fn is_alive(&mut self) -> bool {
         let _started_alive = self.started_alive.clone();
         let started_alive = _started_alive.lock().unwrap();
         let &(_, ref alive) = &*started_alive;
-        return alive.load(Ordering::SeqCst);
+        alive.load(Ordering::SeqCst)
     }
 
     fn start(&mut self) {
@@ -185,21 +191,21 @@ struct HandlerThreadInner {
 
 impl HandlerThreadInner {
     pub fn new() -> HandlerThreadInner {
-        return HandlerThreadInner {
+        HandlerThreadInner {
             started: Arc::new(AtomicBool::new(false)),
             alive: Arc::new(AtomicBool::new(false)),
             q: Arc::new(<fpSync::BlockingQueue<RawFunc>>::new()),
-        };
+        }
     }
 }
 
 impl Handler for HandlerThreadInner {
     fn is_started(&mut self) -> bool {
-        return self.started.load(Ordering::SeqCst);
+        self.started.load(Ordering::SeqCst)
     }
 
     fn is_alive(&mut self) -> bool {
-        return self.alive.load(Ordering::SeqCst);
+        self.alive.load(Ordering::SeqCst)
     }
 
     fn start(&mut self) {

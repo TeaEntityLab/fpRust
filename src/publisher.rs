@@ -22,24 +22,31 @@ and it could be mapped just as Rx-like APIs.
 */
 #[derive(Clone)]
 pub struct Publisher<X> {
-    observers: Vec<Arc<Mutex<SubscriptionFunc<X>>>>,
+    observers: Vec<Arc<Mutex<dyn Subscription<X>>>>,
 
     sub_handler: Option<Arc<Mutex<Handler>>>,
 
     _x: PhantomData<X>,
 }
-impl<X: Send + Sync + 'static> Publisher<X> {
-    pub fn new() -> Publisher<X> {
-        return Publisher {
+
+impl<X> Default for Publisher<X> {
+    fn default() -> Self {
+        Publisher {
             observers: vec![],
             sub_handler: None,
             _x: PhantomData,
-        };
+        }
+    }
+}
+
+impl<X: Send + Sync + 'static> Publisher<X> {
+    pub fn new() -> Publisher<X> {
+        Default::default()
     }
     pub fn new_with_handlers(h: Option<Arc<Mutex<Handler + 'static>>>) -> Publisher<X> {
         let mut new_one = Publisher::new();
         new_one.subscribe_on(h);
-        return new_one;
+        new_one
     }
 
     pub fn publish(&mut self, val: X) {
