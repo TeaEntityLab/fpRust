@@ -24,6 +24,34 @@ Insert `key-value` pairs into the given `map`
 */
 #[macro_export]
 macro_rules! map_insert {
+    ($target:ident, {
+        $($key:ident : $value:expr,)*
+    }) => {
+        $(
+            $target.insert(stringify!($key), $value);
+        )*;
+    };
+    ($target:ident, [
+        $($key:ident : $value:expr,)*
+    ]) => {
+        $(
+            $target.insert(stringify!($key), $value);
+        )*;
+    };
+    ($target:ident, {
+        $($key:expr => $value:expr,)*
+    }) => {
+        $(
+            $target.insert($key, $value);
+        )*;
+    };
+    ($target:ident, [
+        $($key:expr => $value:expr,)*
+    ]) => {
+        $(
+            $target.insert($key, $value);
+        )*;
+    };
     ($target:ident, [
         $($key:expr, $value:expr,)*
     ]) => {
@@ -267,6 +295,25 @@ impl RawFunc {
 fn test_map_insert() {
     use std::collections::HashMap;
 
+    let expected_by_ident = &mut HashMap::new();
+    expected_by_ident.insert("a", "2");
+    expected_by_ident.insert("b", "4");
+    expected_by_ident.insert("c", "6");
+    let actual = &mut HashMap::new();
+    map_insert!(actual, [
+        a : "2",
+        b : "4",
+        c : "6",
+    ]);
+    assert_eq!(expected_by_ident, actual);
+    let actual = &mut HashMap::new();
+    map_insert!(actual, {
+        a : "2",
+        b : "4",
+        c : "6",
+    });
+    assert_eq!(expected_by_ident, actual);
+
     let expected = &mut HashMap::new();
     expected.insert("1", "2");
     expected.insert("3", "4");
@@ -274,10 +321,24 @@ fn test_map_insert() {
 
     let actual = &mut HashMap::new();
     map_insert!(actual, [
+        "1" => "2",
+        "3" => "4",
+        "5" => "6",
+    ]);
+    assert_eq!(expected, actual);
+    let actual = &mut HashMap::new();
+    map_insert!(actual, {
+        "1" => "2",
+        "3" => "4",
+        "5" => "6",
+    });
+    assert_eq!(expected, actual);
+
+    let actual = &mut HashMap::new();
+    map_insert!(actual, [
         "1", "2",
         "3", "4",
         "5", "6",
     ]);
-
     assert_eq!(expected, actual);
 }
