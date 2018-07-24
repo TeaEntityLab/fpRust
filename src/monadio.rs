@@ -38,6 +38,12 @@ pub fn of<Z: 'static + Send + Sync + Clone>(r: Z) -> impl FnMut() -> Z + Send + 
     move || *_r.clone()
 }
 
+impl<Y: 'static + Send + Sync + Clone> From<Y> for MonadIO<Y> {
+    fn from(r: Y) -> Self {
+        MonadIO::just(r)
+    }
+}
+
 impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
     pub fn just(r: Y) -> MonadIO<Y> {
         MonadIO::new(of(r))

@@ -39,6 +39,12 @@ impl<T: Clone + 'static> Maybe<T> {
     }
 }
 
+impl<T: 'static> From<T> for Maybe<T> {
+    fn from(r: T) -> Self {
+        Maybe::just(Some(r))
+    }
+}
+
 impl<T: 'static> Maybe<T> {
     pub fn just(r: Option<T>) -> Maybe<T> {
         Maybe {

@@ -5,6 +5,8 @@ for general purposes crossing over many modules of `fpRust`.
 
 use std::cmp::PartialEq;
 use std::marker::PhantomData;
+
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::sync::{Arc, Mutex};
@@ -202,7 +204,7 @@ impl<T: Send + Sync + 'static> SubscriptionFunc<T> {
             .expect("Time went backwards");
 
         SubscriptionFunc {
-            id: format!("{:?}", since_the_epoch),
+            id: format!("{:?}{:?}", thread::current().id(), since_the_epoch),
             receiver: RawReceiver::new(func),
         }
     }
