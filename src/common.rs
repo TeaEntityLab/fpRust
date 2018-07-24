@@ -176,7 +176,7 @@ pub struct SubscriptionFunc<T> {
     pub receiver: RawReceiver<T>,
 }
 
-impl<T: Send + Sync + 'static + Clone> SubscriptionFunc<T> {
+impl<T: Send + Sync + 'static> SubscriptionFunc<T> {
     pub fn new(func: impl FnMut(Arc<T>) + Send + Sync + 'static) -> SubscriptionFunc<T> {
         let since_the_epoch = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -189,13 +189,13 @@ impl<T: Send + Sync + 'static + Clone> SubscriptionFunc<T> {
     }
 }
 
-impl<T: Send + Sync + 'static + Clone> PartialEq for SubscriptionFunc<T> {
+impl<T: Send + Sync + 'static> PartialEq for SubscriptionFunc<T> {
     fn eq(&self, other: &SubscriptionFunc<T>) -> bool {
         self.id == other.id
     }
 }
 
-impl<T: Send + Sync + 'static + Clone> Subscription<T> for SubscriptionFunc<T> {
+impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
     fn on_next(&mut self, x: Arc<T>) {
         self.receiver.invoke(x);
     }
@@ -335,10 +335,6 @@ fn test_map_insert() {
     assert_eq!(expected, actual);
 
     let actual = &mut HashMap::new();
-    map_insert!(actual, [
-        "1", "2",
-        "3", "4",
-        "5", "6",
-    ]);
+    map_insert!(actual, ["1", "2", "3", "4", "5", "6",]);
     assert_eq!(expected, actual);
 }

@@ -303,10 +303,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
     such as `Python`, `Lua`, `ECMASript`...etc.
 
     */
-    pub fn yield_from<
-        RETURNTARGET: Send + Sync + 'static,
-        RECEIVETARGET: Send + Sync + 'static,
-    >(
+    pub fn yield_from<RETURNTARGET: Send + Sync + 'static, RECEIVETARGET: Send + Sync + 'static>(
         this: Arc<Mutex<Cor<RETURN, RECEIVE>>>,
         target: Arc<Mutex<Cor<RETURNTARGET, RECEIVETARGET>>>,
         sent_to_inside: Option<RECEIVETARGET>,

@@ -80,10 +80,10 @@ use fp_rust::monadio::{
 use fp_rust::sync::CountDownLatch;
 
 // fmap & map (sync)
-let mut _subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<u16>| {
+let mut _subscription = Arc::new(Mutex::new(SubscriptionFunc::new(move |x: Arc<u16>| {
     println!("monadio_sync {:?}", x); // monadio_sync 36
     assert_eq!(36, *Arc::make_mut(&mut x.clone()));
-}));
+})));
 let subscription = _subscription.clone();
 let monadio_sync = MonadIO::just(1)
     .fmap(|x| MonadIO::new(move || x * 4))
@@ -108,15 +108,15 @@ let latch2 = latch.clone();
 
 thread::sleep(time::Duration::from_millis(100));
 
-let subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
+let subscription = Arc::new(Mutex::new(SubscriptionFunc::new(move |x: Arc<String>| {
     println!("monadio_async {:?}", x); // monadio_async ok
 
     latch2.countdown(); // Unlock here
-}));
-monadio_async.subscribe(subscription);
-monadio_async.subscribe(Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
-    println!("monadio_async sub2 {:?}", x); // monadio_async sub2 ok
 })));
+monadio_async.subscribe(subscription);
+monadio_async.subscribe(Arc::new(Mutex::new(SubscriptionFunc::new(move |x: Arc<String>| {
+    println!("monadio_async sub2 {:?}", x); // monadio_async sub2 ok
+}))));
 {
     let mut handler_observe_on = _handler_observe_on.lock().unwrap();
     let mut handler_subscribe_on = _handler_subscribe_on.lock().unwrap();
