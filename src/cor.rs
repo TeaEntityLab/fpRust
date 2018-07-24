@@ -250,9 +250,7 @@ pub struct Cor<RETURN: 'static, RECEIVE: 'static> {
     op_ch_receiver: Arc<Mutex<Receiver<CorOp<RETURN, RECEIVE>>>>,
     effect: Arc<Mutex<FnMut(Arc<Mutex<Cor<RETURN, RECEIVE>>>) + Send + Sync + 'static>>,
 }
-impl<RETURN: Send + Sync + Clone + 'static, RECEIVE: Send + Sync + Clone + 'static>
-    Cor<RETURN, RECEIVE>
-{
+impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, RECEIVE> {
     /**
     Generate a new `Cor` with the given `FnMut` function for the execution of this `Cor`.
 
@@ -306,8 +304,8 @@ impl<RETURN: Send + Sync + Clone + 'static, RECEIVE: Send + Sync + Clone + 'stat
 
     */
     pub fn yield_from<
-        RETURNTARGET: Send + Sync + Clone + 'static,
-        RECEIVETARGET: Send + Sync + Clone + 'static,
+        RETURNTARGET: Send + Sync + 'static,
+        RECEIVETARGET: Send + Sync + 'static,
     >(
         this: Arc<Mutex<Cor<RETURN, RECEIVE>>>,
         target: Arc<Mutex<Cor<RETURNTARGET, RECEIVETARGET>>>,
@@ -557,7 +555,6 @@ impl<RETURN: Send + Sync + Clone + 'static, RECEIVE: Send + Sync + Clone + 'stat
         given_as_request: Option<RECEIVE>,
     ) {
         let _op_ch_sender = self.op_ch_sender.clone();
-        let _given_as_request = Box::new(given_as_request);
 
         // do_close_safe
         if !self.is_alive() {
@@ -569,11 +566,10 @@ impl<RETURN: Send + Sync + Clone + 'static, RECEIVE: Send + Sync + Clone + 'stat
             let _started_alive = __started_alive.lock().unwrap();
 
             // do: (effect)();
-            let given_as_request = _given_as_request.clone();
             let _result = _op_ch_sender.lock().unwrap().send(CorOp {
                 // cor: cor,
                 result_ch_sender: result_ch_sender,
-                val: *given_as_request,
+                val: given_as_request,
             });
         }
     }
