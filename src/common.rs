@@ -158,6 +158,27 @@ pub trait Subscription<X>: Send + Sync + 'static + PartialEq {
 }
 
 /**
+`UniqueId` trait defines the interface of an object with an unique id,
+for general purposes crossing over many modules of fpRust.
+
+# Remarks
+
+This is inspired by Java/Swift Hashable.
+
+*/
+pub trait UniqueId<T> {
+    /**
+    The callback when `Subscription` received the broadcasted value.
+
+    # Arguments
+
+    * `func` - The given `FnMut`.
+
+    */
+    fn get_id(&self) -> T;
+}
+
+/**
 `SubscriptionFunc` struct implements the interface of `Subscription`,
 for general purposes crossing over many modules of fpRust.
 
@@ -187,8 +208,10 @@ impl<T: Send + Sync + 'static> SubscriptionFunc<T> {
             receiver: RawReceiver::new(func),
         };
     }
+}
 
-    pub fn get_id(&self) -> String {
+impl<T> UniqueId<String> for SubscriptionFunc<T> {
+    fn get_id(&self) -> String {
         self.id.clone()
     }
 }

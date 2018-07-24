@@ -1,7 +1,7 @@
 /*!
 In this module, there're implementations & tests of `Publisher`
 */
-use common::{Observable, RawFunc, Subscription, SubscriptionFunc};
+use common::{Observable, RawFunc, Subscription, SubscriptionFunc, UniqueId};
 use handler::Handler;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
@@ -21,24 +21,22 @@ and it could be mapped just as Rx-like APIs.
 
 */
 #[derive(Clone)]
-pub struct Publisher<X, T> {
-    observers: Vec<Arc<Mutex<T>>>,
+pub struct Publisher<X> {
+    observers: Vec<Arc<Mutex<SubscriptionFunc<X>>>>,
 
     sub_handler: Option<Arc<Mutex<Handler>>>,
 
     _x: PhantomData<X>,
 }
-impl<X: Send + Sync + 'static> Publisher<X, SubscriptionFunc<X>> {
-    pub fn new() -> Publisher<X, SubscriptionFunc<X>> {
+impl<X: Send + Sync + 'static> Publisher<X> {
+    pub fn new() -> Publisher<X> {
         return Publisher {
             observers: vec![],
             sub_handler: None,
             _x: PhantomData,
         };
     }
-    pub fn new_with_handlers(
-        h: Option<Arc<Mutex<Handler + 'static>>>,
-    ) -> Publisher<X, SubscriptionFunc<X>> {
+    pub fn new_with_handlers(h: Option<Arc<Mutex<Handler + 'static>>>) -> Publisher<X> {
         let mut new_one = Publisher::new();
         new_one.subscribe_on(h);
         return new_one;
@@ -80,9 +78,7 @@ impl<X: Send + Sync + 'static> Publisher<X, SubscriptionFunc<X>> {
         self.sub_handler = h;
     }
 }
-impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>>
-    for Publisher<X, SubscriptionFunc<X>>
-{
+impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<X> {
     fn add_observer(&mut self, observer: Arc<Mutex<SubscriptionFunc<X>>>) {
         // println!("add_observer({});", observer);
         self.observers.push(observer);
