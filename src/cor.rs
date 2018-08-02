@@ -245,7 +245,7 @@ and use `yield_ref`()/`yield_none`() to return my response to the callee of mine
 #[derive(Clone)]
 pub struct Cor<RETURN: 'static, RECEIVE: 'static> {
 
-    async: bool,
+    is_async: bool,
 
     started_alive: Arc<Mutex<(AtomicBool, AtomicBool)>>,
 
@@ -267,7 +267,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
     ) -> Cor<RETURN, RECEIVE> {
         let (op_ch_sender, op_ch_receiver) = channel();
         Cor {
-            async: true,
+            is_async: true,
             started_alive: Arc::new(Mutex::new((AtomicBool::new(false), AtomicBool::new(false)))),
 
             op_ch_sender: Arc::new(Mutex::new(op_ch_sender)),
@@ -427,7 +427,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
 
     */
     pub fn start(this: Arc<Mutex<Cor<RETURN, RECEIVE>>>) {
-        let async;
+        let is_async;
 
         {
             let _started_alive;
@@ -435,7 +435,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
             {
                 let _me = this.clone();
                 let me = _me.lock().unwrap();
-                async = me.async;
+                is_async = me.is_async;
                 _started_alive = me.started_alive.clone();
             }
 
@@ -468,7 +468,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
                     me.stop();
                 }
             };
-            if async {
+            if is_async {
                 thread::spawn(do_things);
             } else {
                 do_things();
@@ -487,8 +487,8 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
     *NOTE*: Beware the deadlock if it's sync(waiting for each other), except the entry point.
 
     */
-    pub fn set_async(&mut self, async: bool) {
-        self.async = async;
+    pub fn set_async(&mut self, is_async: bool) {
+        self.is_async = is_async;
     }
 
     /**
