@@ -9,6 +9,172 @@ use std::sync::{
 };
 use std::time::Duration;
 
+use common::{Observable, RawFunc, SubscriptionFunc};
+use handler::{Handler, HandlerThread};
+use publisher::Publisher;
+
+/**
+`Will` `trait` defines the interface which could do actions in its `Handler`.
+
+# Remarks
+
+This is highly inspired by `Java Future` concepts.
+
+*/
+pub trait Will<T>: Send + Sync + 'static {
+    /**
+    Did this `Will` start?
+    Return `true` when it did started (no matter it has stopped or not)
+
+    */
+    fn is_started(&mut self) -> bool;
+
+    /**
+    Is this `Will` alive?
+    Return `true` when it has started and not stopped yet.
+    */
+    fn is_alive(&mut self) -> bool;
+
+    /**
+    Start `Will`.
+    */
+    fn start(&mut self);
+
+    /**
+    Stop `Will`.
+    */
+    fn stop(&mut self);
+
+    /**
+    Add a callback called when it has completed.
+
+    # Arguments
+
+    * `subscription` - The callback.
+    ``
+    */
+    fn add_callback(&mut self, subscription: Arc<Mutex<SubscriptionFunc<T>>>);
+
+    /**
+    Remove a callback called when it has completed.
+
+    # Arguments
+
+    * `subscription` - The callback.
+    ``
+    */
+    fn remove_callback(&mut self, subscription: Arc<Mutex<SubscriptionFunc<T>>>);
+
+    /**
+    Get the result.
+    */
+    fn result(&mut self) -> Option<T>;
+}
+
+#[derive(Clone)]
+pub struct WillAsync<T> {
+    effect: Arc<Mutex<dyn FnMut() -> T + Send + Sync + 'static>>,
+    handler: Arc<Mutex<Handler>>,
+    publisher: Arc<Mutex<Publisher<T>>>,
+    started_alive: Arc<Mutex<(AtomicBool, AtomicBool)>>,
+    result: Arc<Mutex<Option<T>>>,
+}
+
+impl<T> WillAsync<T> {
+    pub fn new(effect: impl FnMut() -> T + Send + Sync + 'static) -> WillAsync<T> {
+        Self::new_with_handler(effect, HandlerThread::new_with_mutex())
+    }
+    pub fn new_with_handler(
+        effect: impl FnMut() -> T + Send + Sync + 'static,
+        handler: Arc<Mutex<Handler>>,
+    ) -> WillAsync<T> {
+        WillAsync {
+            handler,
+            effect: Arc::new(Mutex::new(effect)),
+            started_alive: Arc::new(Mutex::new((AtomicBool::new(false), AtomicBool::new(false)))),
+            publisher: Arc::new(Mutex::new(Publisher::default())),
+            result: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> Will<T> for WillAsync<T> {
+    fn is_started(&mut self) -> bool {
+        let _started_alive = self.started_alive.clone();
+        let started_alive = _started_alive.lock().unwrap();
+        let &(ref started, _) = &*started_alive;
+        started.load(Ordering::SeqCst)
+    }
+
+    fn is_alive(&mut self) -> bool {
+        let _started_alive = self.started_alive.clone();
+        let started_alive = _started_alive.lock().unwrap();
+        let &(_, ref alive) = &*started_alive;
+        alive.load(Ordering::SeqCst)
+    }
+
+    fn start(&mut self) {
+        {
+            let _started_alive = self.started_alive.clone();
+            let started_alive = _started_alive.lock().unwrap();
+            let &(ref started, ref alive) = &*started_alive;
+
+            if started.load(Ordering::SeqCst) {
+                return;
+            }
+            started.store(true, Ordering::SeqCst);
+            if alive.load(Ordering::SeqCst) {
+                return;
+            }
+            alive.store(true, Ordering::SeqCst);
+        }
+
+        let mut this = self.clone();
+        let _effect = self.effect.clone();
+        let _publisher = self.publisher.clone();
+
+        let _started_alive = self.started_alive.clone();
+
+        let mut handler = self.handler.lock().unwrap();
+        handler.start();
+        handler.post(RawFunc::new(move || {
+            let effect = &mut *_effect.lock().unwrap();
+            let result = (effect)();
+            _publisher.lock().unwrap().publish(result.clone());
+            (*this.result.lock().unwrap()) = Some(result);
+            this.stop();
+        }));
+    }
+
+    fn stop(&mut self) {
+        {
+            let _started_alive = self.started_alive.clone();
+            let started_alive = _started_alive.lock().unwrap();
+            let &(ref started, ref alive) = &*started_alive;
+
+            if !started.load(Ordering::SeqCst) {
+                return;
+            }
+            if !alive.load(Ordering::SeqCst) {
+                return;
+            }
+            alive.store(false, Ordering::SeqCst);
+        }
+    }
+
+    fn add_callback(&mut self, subscription: Arc<Mutex<SubscriptionFunc<T>>>) {
+        self.publisher.lock().unwrap().subscribe(subscription);
+    }
+
+    fn remove_callback(&mut self, subscription: Arc<Mutex<SubscriptionFunc<T>>>) {
+        self.publisher.lock().unwrap().delete_observer(subscription);
+    }
+
+    fn result(&mut self) -> Option<T> {
+        self.result.lock().unwrap().clone()
+    }
+}
+
 /**
 `CountDownLatch` implements a latch with a value(> 0),
 waiting for the value counted down until <= 0
@@ -220,4 +386,33 @@ impl<T: 'static + Send> Queue<T> for BlockingQueue<T> {
             }
         }
     }
+}
+
+#[test]
+fn test_will_sync_new() {
+    use std::time;
+    use std::thread;
+    use sync::CountDownLatch;
+
+    let latch = CountDownLatch::new(1);
+    let latch2 = latch.clone();
+    let mut h = WillAsync::new(move ||{
+        1
+    });
+    assert_eq!(false, h.is_alive());
+    assert_eq!(false, h.is_started());
+    h.stop();
+    h.stop();
+    assert_eq!(false, h.is_alive());
+    assert_eq!(false, h.is_started());
+    h.start();
+    h.add_callback(Arc::new(Mutex::new(SubscriptionFunc::new(move |_v: Arc<i16>|{
+        assert_eq!(1, *Arc::make_mut(&mut _v.clone()));
+        latch2.countdown();
+    }))));
+    latch.clone().wait();
+    thread::sleep(time::Duration::from_millis(50));
+    assert_eq!(false, h.is_alive());
+    assert_eq!(true, h.is_started());
+    assert_eq!(1, h.result().unwrap());
 }

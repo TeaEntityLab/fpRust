@@ -134,19 +134,12 @@ impl Handler for HandlerThread {
 
         let mut _inner = self.inner.clone();
 
+        let mut this = self.clone();
         let _started_alive = self.started_alive.clone();
         self.handle = Arc::new(Mutex::new(Some(thread::spawn(move || {
             Arc::make_mut(&mut _inner).start();
 
-            {
-                let started_alive = _started_alive.lock().unwrap();
-                let &(_, ref alive) = &*started_alive;
-
-                if !alive.load(Ordering::SeqCst) {
-                    return;
-                }
-                alive.store(false, Ordering::SeqCst);
-            }
+            this.stop();
         }))));
     }
 
@@ -252,17 +245,17 @@ fn test_handler_new() {
     let mut _h = HandlerThread::new_with_mutex();
     let mut h = _h.lock().unwrap();
 
-    println!("is_alive {:?}", h.is_alive());
-    println!("is_started {:?}", h.is_started());
+    assert_eq!(false, h.is_alive());
+    assert_eq!(false, h.is_started());
 
     h.stop();
     h.stop();
-    println!("is_alive {:?}", h.is_alive());
-    println!("is_started {:?}", h.is_started());
+    assert_eq!(false, h.is_alive());
+    assert_eq!(false, h.is_started());
     // let mut h1 = _h.clone();
     h.start();
-    println!("is_alive {:?}", h.is_alive());
-    println!("is_started {:?}", h.is_started());
+    assert_eq!(true, h.is_alive());
+    assert_eq!(true, h.is_started());
 
     let latch = CountDownLatch::new(1);
     let latch2 = latch.clone();
@@ -289,15 +282,16 @@ fn test_handler_new() {
     }));
     println!("Test");
 
-    thread::sleep(time::Duration::from_millis(100));
+    thread::sleep(time::Duration::from_millis(50));
 
-    println!("is_alive {:?}", h.is_alive());
-    println!("is_started {:?}", h.is_started());
+    assert_eq!(true, h.is_alive());
+    assert_eq!(true, h.is_started());
 
     h.stop();
+    thread::sleep(time::Duration::from_millis(50));
 
-    println!("is_alive {:?}", h.is_alive());
-    println!("is_started {:?}", h.is_started());
+    assert_eq!(false, h.is_alive());
+    assert_eq!(true, h.is_started());
 
     latch.clone().wait();
 }
