@@ -140,8 +140,8 @@ impl<T: Clone + Send + Sync + 'static> Will<T> for WillAsync<T> {
         handler.post(RawFunc::new(move || {
             let effect = &mut *_effect.lock().unwrap();
             let result = (effect)();
-            _publisher.lock().unwrap().publish(result.clone());
-            (*this.result.lock().unwrap()) = Some(result);
+            (*this.result.lock().unwrap()) = Some(result.clone());
+            _publisher.lock().unwrap().publish(result);
             this.stop();
         }));
     }
@@ -390,15 +390,13 @@ impl<T: 'static + Send> Queue<T> for BlockingQueue<T> {
 
 #[test]
 fn test_will_sync_new() {
-    use std::time;
     use std::thread;
+    use std::time;
     use sync::CountDownLatch;
 
     let latch = CountDownLatch::new(1);
     let latch2 = latch.clone();
-    let mut h = WillAsync::new(move ||{
-        1
-    });
+    let mut h = WillAsync::new(move || 1);
     assert_eq!(false, h.is_alive());
     assert_eq!(false, h.is_started());
     h.stop();
@@ -406,10 +404,12 @@ fn test_will_sync_new() {
     assert_eq!(false, h.is_alive());
     assert_eq!(false, h.is_started());
     h.start();
-    h.add_callback(Arc::new(Mutex::new(SubscriptionFunc::new(move |_v: Arc<i16>|{
-        assert_eq!(1, *Arc::make_mut(&mut _v.clone()));
-        latch2.countdown();
-    }))));
+    h.add_callback(Arc::new(Mutex::new(SubscriptionFunc::new(
+        move |_v: Arc<i16>| {
+            assert_eq!(1, *Arc::make_mut(&mut _v.clone()));
+            latch2.countdown();
+        },
+    ))));
     latch.clone().wait();
     thread::sleep(time::Duration::from_millis(50));
     assert_eq!(false, h.is_alive());
