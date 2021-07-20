@@ -202,7 +202,7 @@ where
 
 #[inline]
 pub fn reduce<'r, T: 'r>(f: impl FnMut(T, T) -> T, v: Vec<T>) -> Option<T> {
-    v.into_iter().reduce(f)
+    Reduce::reduce(v.into_iter(), f)
 }
 
 #[test]
