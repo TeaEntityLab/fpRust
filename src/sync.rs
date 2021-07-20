@@ -74,7 +74,7 @@ pub trait Will<T>: Send + Sync + 'static {
 #[derive(Clone)]
 pub struct WillAsync<T> {
     effect: Arc<Mutex<dyn FnMut() -> T + Send + Sync + 'static>>,
-    handler: Arc<Mutex<Handler>>,
+    handler: Arc<Mutex<dyn Handler>>,
     publisher: Arc<Mutex<Publisher<T>>>,
     started_alive: Arc<Mutex<(AtomicBool, AtomicBool)>>,
     result: Arc<Mutex<Option<T>>>,
@@ -86,7 +86,7 @@ impl<T> WillAsync<T> {
     }
     pub fn new_with_handler(
         effect: impl FnMut() -> T + Send + Sync + 'static,
-        handler: Arc<Mutex<Handler>>,
+        handler: Arc<Mutex<dyn Handler>>,
     ) -> WillAsync<T> {
         WillAsync {
             handler,
@@ -331,7 +331,7 @@ impl<T: 'static + Send> Queue<T> for BlockingQueue<T> {
 
             let result = self.blocking_sender.lock().unwrap().send(v);
             if self.panic && result.is_err() {
-                panic!(result.err());
+                std::panic::panic_any(result.err());
             }
         }
     }
@@ -345,7 +345,7 @@ impl<T: 'static + Send> Queue<T> for BlockingQueue<T> {
             let result = self.blocking_recever.lock().unwrap().try_recv();
 
             if self.panic && result.is_err() {
-                panic!(result.err());
+                std::panic::panic_any(result.err());
             }
 
             result.ok()
@@ -369,7 +369,7 @@ impl<T: 'static + Send> Queue<T> for BlockingQueue<T> {
                     let result = self.blocking_recever.lock().unwrap().recv_timeout(duration);
 
                     if self.panic && result.is_err() {
-                        panic!(result.err());
+                        std::panic::panic_any(result.err());
                     }
 
                     result.ok()
@@ -378,7 +378,7 @@ impl<T: 'static + Send> Queue<T> for BlockingQueue<T> {
                     let result = self.blocking_recever.lock().unwrap().recv();
 
                     if self.panic && result.is_err() {
-                        panic!(result.err());
+                        std::panic::panic_any(result.err());
                     }
 
                     result.ok()

@@ -28,8 +28,8 @@ It's inspired by `Rx` & `MonadIO` in `Haskell`
 #[derive(Clone)]
 pub struct MonadIO<Y> {
     effect: Arc<Mutex<dyn FnMut() -> Y + Send + Sync + 'static>>,
-    ob_handler: Option<Arc<Mutex<Handler>>>,
-    sub_handler: Option<Arc<Mutex<Handler>>>,
+    ob_handler: Option<Arc<Mutex<dyn Handler>>>,
+    sub_handler: Option<Arc<Mutex<dyn Handler>>>,
 }
 
 pub fn of<Z: 'static + Send + Sync + Clone>(r: Z) -> impl FnMut() -> Z + Send + Sync + 'static {
@@ -57,8 +57,8 @@ impl<Y: 'static + Send + Sync> MonadIO<Y> {
 
     pub fn new_with_handlers(
         effect: impl FnMut() -> Y + Send + Sync + 'static,
-        ob: Option<Arc<Mutex<Handler + 'static>>>,
-        sub: Option<Arc<Mutex<Handler + 'static>>>,
+        ob: Option<Arc<Mutex<dyn Handler + 'static>>>,
+        sub: Option<Arc<Mutex<dyn Handler + 'static>>>,
     ) -> MonadIO<Y> {
         MonadIO {
             effect: Arc::new(Mutex::new(effect)),
@@ -67,11 +67,11 @@ impl<Y: 'static + Send + Sync> MonadIO<Y> {
         }
     }
 
-    pub fn observe_on(&mut self, h: Option<Arc<Mutex<Handler + 'static>>>) {
+    pub fn observe_on(&mut self, h: Option<Arc<Mutex<dyn Handler + 'static>>>) {
         self.ob_handler = h;
     }
 
-    pub fn subscribe_on(&mut self, h: Option<Arc<Mutex<Handler + 'static>>>) {
+    pub fn subscribe_on(&mut self, h: Option<Arc<Mutex<dyn Handler + 'static>>>) {
         self.sub_handler = h;
     }
 

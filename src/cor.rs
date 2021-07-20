@@ -223,7 +223,8 @@ pub struct CorOp<RETURN: 'static, RECEIVE: 'static> {
 }
 impl<RETURN, RECEIVE> CorOp<RETURN, RECEIVE> {}
 
-type CorEffect<RETURN, RECEIVE> = FnMut(Arc<Mutex<Cor<RETURN, RECEIVE>>>) + Send + Sync + 'static;
+type CorEffect<RETURN, RECEIVE> =
+    dyn FnMut(Arc<Mutex<Cor<RETURN, RECEIVE>>>) + Send + Sync + 'static;
 
 /**
 The `Cor` implements a *PythonicGenerator-like Coroutine*.
@@ -244,7 +245,6 @@ and use `yield_ref`()/`yield_none`() to return my response to the callee of mine
 */
 #[derive(Clone)]
 pub struct Cor<RETURN: 'static, RECEIVE: 'static> {
-
     is_async: bool,
 
     started_alive: Arc<Mutex<(AtomicBool, AtomicBool)>>,
@@ -622,7 +622,8 @@ fn test_cor_do_m() {
                 cor_yield_from!(this, cor_inner1, Some(1)).unwrap(),
                 cor_yield_from!(this, cor_inner2, Some(2)).unwrap(),
                 cor_yield_from!(this, cor_inner3, Some(3)).unwrap(),
-            ].join("");
+            ]
+            .join("");
         }
     });
 

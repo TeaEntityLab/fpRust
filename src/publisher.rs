@@ -24,7 +24,7 @@ and it could be mapped just as Rx-like APIs.
 pub struct Publisher<X> {
     observers: Vec<Arc<Mutex<dyn Subscription<X>>>>,
 
-    sub_handler: Option<Arc<Mutex<Handler>>>,
+    sub_handler: Option<Arc<Mutex<dyn Handler>>>,
 
     _x: PhantomData<X>,
 }
@@ -43,7 +43,7 @@ impl<X: Send + Sync + 'static> Publisher<X> {
     pub fn new() -> Publisher<X> {
         Default::default()
     }
-    pub fn new_with_handlers(h: Option<Arc<Mutex<Handler + 'static>>>) -> Publisher<X> {
+    pub fn new_with_handlers(h: Option<Arc<Mutex<dyn Handler + 'static>>>) -> Publisher<X> {
         let mut new_one = Publisher::new();
         new_one.subscribe_on(h);
         new_one
@@ -81,7 +81,7 @@ impl<X: Send + Sync + 'static> Publisher<X> {
         self.delete_observer(s);
     }
 
-    pub fn subscribe_on(&mut self, h: Option<Arc<Mutex<Handler + 'static>>>) {
+    pub fn subscribe_on(&mut self, h: Option<Arc<Mutex<dyn Handler + 'static>>>) {
         self.sub_handler = h;
     }
 }

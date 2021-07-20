@@ -31,35 +31,35 @@ macro_rules! map_insert {
     }) => {
         $(
             $target.insert(stringify!($key), $value);
-        )*;
+        )*
     };
     ($target:ident, [
         $($key:ident : $value:expr,)*
     ]) => {
         $(
             $target.insert(stringify!($key), $value);
-        )*;
+        )*
     };
     ($target:ident, {
         $($key:expr => $value:expr,)*
     }) => {
         $(
             $target.insert($key, $value);
-        )*;
+        )*
     };
     ($target:ident, [
         $($key:expr => $value:expr,)*
     ]) => {
         $(
             $target.insert($key, $value);
-        )*;
+        )*
     };
     ($target:ident, [
         $($key:expr, $value:expr,)*
     ]) => {
         $(
             $target.insert($key, $value);
-        )*;
+        )*
     };
 }
 
@@ -288,7 +288,7 @@ It's the base of sending `FnMut` objects crossing `channel`s.
 */
 #[derive(Clone)]
 pub struct RawFunc {
-    func: Arc<Mutex<FnMut() + Send + Sync + 'static>>,
+    func: Arc<Mutex<dyn FnMut() + Send + Sync + 'static>>,
 }
 
 impl RawFunc {
