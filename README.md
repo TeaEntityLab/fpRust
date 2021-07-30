@@ -24,8 +24,10 @@ Thus I implemented fpRust. I hope you would like it :)
 * MonadIO, Rx-like (*`fp_rust::monadio::MonadIO`*)
   * map/fmap/subscribe
   * async/sync
+  * Support *`to_future()`* with *`feature: for_futures`
 
 * Publisher (*`fp_rust::publisher::Publisher`*)
+  * Support *`Stream`* implementation with *`feature: for_futures`
 
 * Fp functions (*`fp_rust::fp`*)
   * compose!(), pipe!()
@@ -34,8 +36,10 @@ Thus I implemented fpRust. I hope you would like it :)
 
 * Async (*`fp_rust::sync`* & *`fp_rust::handler::HandlerThread`*)
   * simple BlockingQueue (inspired by *`Java BlockingQueue`*, implemented by built-in *`std::sync::mpsc::channel`*)
+    * Support *`Stream`* implementation with *`feature: for_futures`
   * HandlerThread (inspired by *`Android Handler`*, implemented by built-in *`std::thread`*)
   * WillAsync (inspired by *`Java Future`*)
+    * Support *`to_future()`* with *`feature: for_futures`
   * CountDownLatch (inspired by *`Java CountDownLatch`*, implemented by built-in *`std::sync::Mutex`*)
 
 * Cor (*`fp_rust::cor::Cor`*)

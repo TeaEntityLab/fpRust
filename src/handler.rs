@@ -8,9 +8,9 @@ use std::sync::{
 };
 use std::thread;
 
-use common::RawFunc;
-use sync as fpSync;
-use sync::Queue;
+use super::common::RawFunc;
+use super::sync as fpSync;
+use super::sync::Queue;
 
 /**
 `Handler` `trait` defines the interface which could receive `FnMut` and run them on its own `thread`.
@@ -239,8 +239,8 @@ impl Handler for HandlerThreadInner {
 
 #[test]
 fn test_handler_new() {
+    use super::sync::CountDownLatch;
     use std::time;
-    use sync::CountDownLatch;
 
     let mut _h = HandlerThread::new_with_mutex();
     let mut h = _h.lock().unwrap();

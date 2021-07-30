@@ -1,10 +1,11 @@
 /*!
 In this module, there're implementations & tests of `Publisher`
 */
-use common::{Observable, RawFunc, Subscription, SubscriptionFunc, UniqueId};
-use handler::Handler;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
+
+use super::common::{Observable, RawFunc, Subscription, SubscriptionFunc, UniqueId};
+use super::handler::Handler;
 
 /**
 The `Publisher` implements *PubSub-like* features.
@@ -143,11 +144,11 @@ impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<
 
 #[test]
 fn test_publisher_new() {
-    use common::SubscriptionFunc;
-    use handler::HandlerThread;
+    use super::common::SubscriptionFunc;
+    use super::handler::HandlerThread;
     use std::sync::Arc;
 
-    use sync::CountDownLatch;
+    use super::sync::CountDownLatch;
 
     let mut pub1 = Publisher::new();
     pub1.subscribe_fn(|x: Arc<u16>| {

@@ -9,9 +9,18 @@ use std::sync::{
 };
 use std::time::Duration;
 
-use common::{Observable, RawFunc, SubscriptionFunc};
-use handler::{Handler, HandlerThread};
-use publisher::Publisher;
+#[cfg(feature = "for_futures")]
+use futures::stream::Stream;
+#[cfg(feature = "for_futures")]
+use std::future::Future;
+#[cfg(feature = "for_futures")]
+use std::pin::Pin;
+#[cfg(feature = "for_futures")]
+use std::task::{Context, Poll, Waker};
+
+use super::common::{Observable, RawFunc, SubscriptionFunc};
+use super::handler::{Handler, HandlerThread};
+use super::publisher::Publisher;
 
 /**
 `Will` `trait` defines the interface which could do actions in its `Handler`.
@@ -78,6 +87,9 @@ pub struct WillAsync<T> {
     publisher: Arc<Mutex<Publisher<T>>>,
     started_alive: Arc<Mutex<(AtomicBool, AtomicBool)>>,
     result: Arc<Mutex<Option<T>>>,
+
+    #[cfg(feature = "for_futures")]
+    waker: Arc<Mutex<Option<Waker>>>,
 }
 
 impl<T> WillAsync<T> {
@@ -94,11 +106,17 @@ impl<T> WillAsync<T> {
             started_alive: Arc::new(Mutex::new((AtomicBool::new(false), AtomicBool::new(false)))),
             publisher: Arc::new(Mutex::new(Publisher::default())),
             result: Arc::new(Mutex::new(None)),
+
+            #[cfg(feature = "for_futures")]
+            waker: Arc::new(Mutex::new(None)),
         }
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> Will<T> for WillAsync<T> {
+impl<T> Will<T> for WillAsync<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
     fn is_started(&mut self) -> bool {
         let _started_alive = self.started_alive.clone();
         let started_alive = _started_alive.lock().unwrap();
@@ -160,6 +178,13 @@ impl<T: Clone + Send + Sync + 'static> Will<T> for WillAsync<T> {
             }
             alive.store(false, Ordering::SeqCst);
         }
+
+        #[cfg(feature = "for_futures")]
+        {
+            if let Some(waker) = self.waker.lock().unwrap().take() {
+                waker.wake()
+            }
+        }
     }
 
     fn add_callback(&mut self, subscription: Arc<Mutex<SubscriptionFunc<T>>>) {
@@ -172,6 +197,23 @@ impl<T: Clone + Send + Sync + 'static> Will<T> for WillAsync<T> {
 
     fn result(&mut self) -> Option<T> {
         self.result.lock().unwrap().clone()
+    }
+}
+
+#[cfg(feature = "for_futures")]
+impl<T> Future for WillAsync<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
+    type Output = Option<T>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.is_started() && (!self.is_alive()) {
+            Poll::Ready(self.result())
+        } else {
+            self.waker.lock().unwrap().replace(cx.waker().clone());
+            Poll::Pending
+        }
     }
 }
 
@@ -232,6 +274,11 @@ impl CountDownLatch {
             }
         }
     }
+
+    #[cfg(feature = "for_futures")]
+    pub async fn wait_async(&self) {
+        self.wait()
+    }
 }
 
 /**
@@ -275,6 +322,9 @@ pub struct BlockingQueue<T> {
     alive: Arc<Mutex<AtomicBool>>,
     blocking_sender: Arc<Mutex<mpsc::Sender<T>>>,
     blocking_recever: Arc<Mutex<mpsc::Receiver<T>>>,
+
+    #[cfg(feature = "for_futures")]
+    waker: Arc<Mutex<Option<Waker>>>,
 }
 
 // impl <T> Copy for BlockingQueue<T> {
@@ -293,6 +343,9 @@ impl<T> Default for BlockingQueue<T> {
             panic: false,
             blocking_sender: Arc::new(Mutex::new(blocking_sender)),
             blocking_recever: Arc::new(Mutex::new(blocking_recever)),
+
+            #[cfg(feature = "for_futures")]
+            waker: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -318,10 +371,20 @@ impl<T> BlockingQueue<T> {
             let sender = self.blocking_sender.lock().unwrap();
             drop(sender);
         }
+
+        #[cfg(feature = "for_futures")]
+        {
+            if let Some(waker) = self.waker.lock().unwrap().take() {
+                waker.wake()
+            }
+        }
     }
 }
 
-impl<T: 'static + Send> Queue<T> for BlockingQueue<T> {
+impl<T> Queue<T> for BlockingQueue<T>
+where
+    T: 'static + Send,
+{
     fn offer(&mut self, v: T) {
         {
             let alive = &self.alive.lock().unwrap();
@@ -388,11 +451,27 @@ impl<T: 'static + Send> Queue<T> for BlockingQueue<T> {
     }
 }
 
+#[cfg(feature = "for_futures")]
+impl<T> Stream for BlockingQueue<T>
+where
+    T: 'static + Send,
+{
+    type Item = T;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if !self.alive.lock().unwrap().load(Ordering::SeqCst) {
+            return Poll::Ready(None);
+        } else {
+            self.waker.lock().unwrap().replace(cx.waker().clone());
+            return Poll::Ready(self.take());
+        }
+    }
+}
+
 #[test]
 fn test_will_sync_new() {
     use std::thread;
     use std::time;
-    use sync::CountDownLatch;
 
     let latch = CountDownLatch::new(1);
     let latch2 = latch.clone();

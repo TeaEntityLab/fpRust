@@ -4,9 +4,11 @@ It's inspired by `Rx` & `MonadIO` in `Haskell`
 */
 use std::sync::{Arc, Mutex};
 
-use handler::Handler;
+use super::handler::Handler;
 
-use common::{RawFunc, Subscription, SubscriptionFunc};
+use super::sync::CountDownLatch;
+
+use super::common::{RawFunc, Subscription, SubscriptionFunc};
 
 /**
 `MonadIO` implements basic `Rx`/`MonadIO` APIs.
@@ -156,16 +158,43 @@ impl<Y: 'static + Send + Sync> MonadIO<Y> {
     pub fn subscribe_fn(&self, func: impl FnMut(Arc<Y>) + Send + Sync + 'static) {
         self.subscribe(Arc::new(Mutex::new(SubscriptionFunc::new(func))))
     }
+
+    pub fn eval(&self) -> Arc<Y> {
+        let latch = CountDownLatch::new(1);
+        let latch_thread = latch.clone();
+
+        let result = Arc::new(Mutex::new(None::<Arc<Y>>));
+        let result_thread = result.clone();
+        self.subscribe_fn(move |y| {
+            result_thread.lock().unwrap().replace(y);
+
+            latch_thread.countdown();
+        });
+
+        latch.wait();
+        let result = result.lock().as_mut().unwrap().to_owned();
+        result.unwrap()
+    }
+
+    #[cfg(feature = "for_futures")]
+    pub async fn to_future(&self) -> Arc<Y> {
+        self.eval()
+    }
+}
+
+#[test]
+fn test_monadio_async() {
+    assert_eq!(Arc::new(3), MonadIO::just(3).eval());
 }
 
 #[test]
 fn test_monadio_new() {
-    use common::SubscriptionFunc;
-    use handler::HandlerThread;
+    use super::common::SubscriptionFunc;
+    use super::handler::HandlerThread;
     use std::sync::Arc;
     use std::{thread, time};
 
-    use sync::CountDownLatch;
+    use super::sync::CountDownLatch;
 
     let monadio_simple = MonadIO::just(3);
     // let mut monadio_simple = MonadIO::just(3);

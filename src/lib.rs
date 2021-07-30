@@ -1,3 +1,8 @@
+// #[cfg(feature = "for_futures")]
+// extern crate tokio;
+#[cfg(feature = "for_futures")]
+extern crate futures;
+
 pub mod cor;
 pub mod fp;
 pub mod handler;
