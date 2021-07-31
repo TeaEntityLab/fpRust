@@ -396,6 +396,25 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
 pub struct SubscriptionFuncStream<T>(SubscriptionFunc<T>);
 
 #[cfg(feature = "for_futures")]
+impl<T> SubscriptionFuncStream<T> {
+    pub fn close_stream(&mut self) {
+        self.0.close_stream();
+    }
+}
+
+/*
+#[cfg(feature = "for_futures")]
+impl<T> SubscriptionFuncStream<T>
+where
+    T: 'static + Send + Unpin,
+{
+    pub fn open_stream(&mut self) {
+        self.0.open_stream();
+    }
+}
+*/
+
+#[cfg(feature = "for_futures")]
 impl<T> Stream for SubscriptionFuncStream<T>
 where
     T: 'static + Send + Unpin,
@@ -423,7 +442,7 @@ where
                     if picked.is_none() {
                         // Keep Pending
                         {
-                            self.0.waker.lock().unwrap().replace(cx.waker().clone())
+                            self.0.waker.lock().unwrap().replace(cx.waker().clone());
                         };
                         return Poll::Pending;
                     }
@@ -437,7 +456,7 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.0.alive.is_none() || self.0.cached.is_none() {
+        if self.0.alive.is_some() && self.0.cached.is_some() {
             if let Some(alive) = &self.0.alive {
                 // Check alive
                 let alive = { alive.lock().unwrap().load(Ordering::SeqCst) };

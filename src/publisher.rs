@@ -177,8 +177,8 @@ async fn test_publisher_stream() {
     let mut _h = HandlerThread::new_with_mutex();
     let mut pub1 = Publisher::new_with_handlers(Some(_h.clone()));
     //*
-    let s = pub1.subscribe_as_stream(Arc::new(Mutex::new(SubscriptionFunc::new(move |_| {
-        println!("{:?}", "SS");
+    let s = pub1.subscribe_as_stream(Arc::new(Mutex::new(SubscriptionFunc::new(move |x| {
+        println!("{:?}: {:?}", "SS", x);
     }))));
     // */
     {
