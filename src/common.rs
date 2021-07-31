@@ -301,6 +301,13 @@ impl<T> SubscriptionFunc<T> {
                 cached.lock().unwrap().clear();
             }
         }
+
+        {
+            if let Some(waker) = self.waker.clone().lock().unwrap().take() {
+                self.waker = Arc::new(Mutex::new(None));
+                waker.wake();
+            }
+        }
     }
 }
 
@@ -321,13 +328,6 @@ where
 
         if self.cached.is_none() {
             self.cached = Some(Arc::new(Mutex::new(VecDeque::new())));
-        }
-
-        {
-            if let Some(waker) = self.waker.clone().lock().unwrap().take() {
-                self.waker = Arc::new(Mutex::new(None));
-                waker.wake();
-            }
         }
     }
 
