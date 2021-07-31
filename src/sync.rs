@@ -10,11 +10,15 @@ use std::sync::{
 use std::time::Duration;
 
 #[cfg(feature = "for_futures")]
+use std::error::Error;
+#[cfg(feature = "for_futures")]
 use std::future::Future;
 #[cfg(feature = "for_futures")]
 use std::pin::Pin;
 #[cfg(feature = "for_futures")]
 use std::task::{Context, Poll, Waker};
+#[cfg(feature = "for_futures")]
+use tokio::task::spawn_blocking;
 
 use super::common::{Observable, RawFunc, SubscriptionFunc};
 use super::handler::{Handler, HandlerThread};
@@ -274,8 +278,10 @@ impl CountDownLatch {
     }
 
     #[cfg(feature = "for_futures")]
-    pub async fn wait_async(&self) {
-        self.wait()
+    pub async fn wait_async(&self) -> Result<(), Box<dyn Error>> {
+        let c = self.clone();
+        spawn_blocking(move || c.wait()).await?;
+        Ok(())
     }
 }
 
