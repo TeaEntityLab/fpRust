@@ -218,14 +218,16 @@ pub struct SubscriptionFunc<T> {
 
 #[cfg(feature = "for_futures")]
 impl<T> SubscriptionFunc<T> {
-    pub fn close(&mut self) {
+    pub fn close_stream(&mut self) {
         if let Some(alive) = &self.alive {
             alive.lock().unwrap().store(false, Ordering::SeqCst);
             self.alive = None;
         }
 
         let old_cached = self.cached.clone();
-        self.cached = None;
+        if self.cached.is_some() {
+            self.cached = None;
+        }
         if let Some(cached) = &old_cached {
             cached.lock().unwrap().clear();
         }
@@ -237,10 +239,10 @@ impl<T> SubscriptionFunc<T>
 where
     T: 'static + Send,
 {
-    pub fn as_stream(&mut self) -> &dyn Stream<Item = Arc<T>> {
+    pub fn open_stream(&mut self) {
         match &self.alive {
             Some(alive) => {
-                alive.lock().unwrap().store(false, Ordering::SeqCst);
+                alive.lock().unwrap().store(true, Ordering::SeqCst);
             }
             None => {
                 self.alive = Some(Arc::new(Mutex::new(AtomicBool::new(true))));
@@ -250,6 +252,10 @@ where
         if self.cached.is_none() {
             self.cached = Some(Arc::new(Mutex::new(VecDeque::new())));
         }
+    }
+
+    pub fn as_stream(&mut self) -> &dyn Stream<Item = Arc<T>> {
+        self.open_stream();
 
         self
     }
@@ -293,16 +299,12 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
 
         #[cfg(feature = "for_futures")]
         {
-            if self.alive.is_none() || self.cached.is_none() {
-                return;
-            }
             if let Some(alive) = &self.alive {
-                if !alive.lock().unwrap().load(Ordering::SeqCst) {
-                    return;
+                if let Some(cached) = &self.cached {
+                    if alive.lock().unwrap().load(Ordering::SeqCst) {
+                        cached.lock().unwrap().push_back(x.clone());
+                    }
                 }
-            }
-            if let Some(cached) = &self.cached {
-                cached.lock().unwrap().push_back(x.clone());
             }
         }
     }

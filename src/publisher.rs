@@ -4,6 +4,9 @@ In this module, there're implementations & tests of `Publisher`
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "for_futures")]
+use futures::stream::Stream;
+
 use super::common::{Observable, RawFunc, Subscription, SubscriptionFunc, UniqueId};
 use super::handler::Handler;
 
@@ -84,6 +87,17 @@ impl<X: Send + Sync + 'static> Publisher<X> {
 
     pub fn subscribe_on(&mut self, h: Option<Arc<Mutex<dyn Handler + 'static>>>) {
         self.sub_handler = h;
+    }
+
+    #[cfg(feature = "for_futures")]
+    pub fn subscribe_as_stream(&mut self) -> Arc<Mutex<dyn Stream<Item = Arc<X>>>> {
+        let subscription = self.subscribe_fn(|_| {});
+
+        {
+            subscription.lock().unwrap().open_stream();
+        }
+
+        subscription
     }
 }
 impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<X> {
