@@ -5,6 +5,8 @@ use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "for_futures")]
+use super::common::SubscriptionFuncStream;
+#[cfg(feature = "for_futures")]
 use futures::stream::Stream;
 
 use super::common::{Observable, RawFunc, Subscription, SubscriptionFunc, UniqueId};
@@ -95,7 +97,7 @@ impl<X: Send + Sync + 'static + Unpin + Clone> Publisher<X> {
     pub fn subscribe_as_stream(
         &mut self,
         s: Arc<Mutex<SubscriptionFunc<X>>>,
-    ) -> impl Stream<Item = Arc<X>> + Unpin {
+    ) -> SubscriptionFuncStream<X> {
         let s = self.subscribe(s);
 
         let mut s = s.lock().unwrap();
@@ -173,16 +175,10 @@ async fn test_publisher_stream() {
     use super::sync::CountDownLatch;
 
     let mut _h = HandlerThread::new_with_mutex();
-
     let mut pub1 = Publisher::new_with_handlers(Some(_h.clone()));
-
-    let latch = CountDownLatch::new(4);
-    let latch2 = latch.clone();
-
     //*
     let s = pub1.subscribe_as_stream(Arc::new(Mutex::new(SubscriptionFunc::new(move |_| {
         println!("{:?}", "SS");
-        latch2.countdown();
     }))));
     // */
     {
@@ -192,17 +188,13 @@ async fn test_publisher_stream() {
         h.start();
         println!("hh2 running");
     }
-
     pub1.publish(1);
     pub1.publish(2);
     pub1.publish(3);
     pub1.publish(4);
-
-    // let _ = latch.wait_async().await;
-
     let mut got_list = Vec::<Arc<i32>>::new();
     {
-        let mut result = s;
+        let mut result = s.clone();
         for n in 1..5 {
             println!("{:?}: {:?}", n, "Before");
             let item = result.next().await;
@@ -211,11 +203,7 @@ async fn test_publisher_stream() {
             }
             println!("{:?}: {:?}", n, item);
         }
-        // let result = s.lock().as_deref().unwrap().collect::<Vec<_>>().await;
-        // assert_eq!(
-        //     vec![Arc::new(1), Arc::new(2), Arc::new(3), Arc::new(4),],
-        //     result
-        // );
+        // got_list = s.collect::<Vec<_>>().await;
     }
     assert_eq!(
         vec![Arc::new(1), Arc::new(2), Arc::new(3), Arc::new(4),],

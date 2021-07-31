@@ -215,6 +215,10 @@ where
         if self.is_started() && (!self.is_alive()) {
             Poll::Ready(self.result())
         } else {
+            if !self.is_started() {
+                self.start();
+            }
+
             self.waker.lock().unwrap().replace(cx.waker().clone());
             Poll::Pending
         }
@@ -447,6 +451,40 @@ where
             }
         }
     }
+}
+
+#[cfg(feature = "for_futures")]
+#[futures_test::test]
+async fn test_sync_future() {
+    let wa = WillAsync::new(move || 1);
+
+    assert_eq!(Some(1), wa.await);
+
+    let mut _h = HandlerThread::new_with_mutex();
+    let mut pub1 = Publisher::new_with_handlers(Some(_h.clone()));
+
+    let latch = CountDownLatch::new(4);
+    let latch2 = latch.clone();
+
+    let _ = pub1.subscribe(Arc::new(Mutex::new(SubscriptionFunc::new(move |_| {
+        println!("{:?}", "SS");
+        latch2.countdown();
+    }))));
+
+    {
+        let h = &mut _h.lock().unwrap();
+
+        println!("hh2");
+        h.start();
+        println!("hh2 running");
+    }
+
+    pub1.publish(1);
+    pub1.publish(2);
+    pub1.publish(3);
+    pub1.publish(4);
+
+    let _ = latch.wait_async().await;
 }
 
 #[test]

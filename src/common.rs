@@ -331,7 +331,7 @@ where
         }
     }
 
-    pub fn as_stream(&mut self) -> impl Stream<Item = Arc<T>> {
+    pub fn as_stream(&mut self) -> SubscriptionFuncStream<T> {
         self.open_stream();
 
         SubscriptionFuncStream { 0: self.clone() }
@@ -391,6 +391,8 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
     }
 }
 
+#[cfg(feature = "for_futures")]
+#[derive(Clone)]
 pub struct SubscriptionFuncStream<T>(SubscriptionFunc<T>);
 
 #[cfg(feature = "for_futures")]
