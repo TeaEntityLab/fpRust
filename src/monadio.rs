@@ -197,9 +197,23 @@ impl<Y: 'static + Send + Sync> MonadIO<Y> {
     }
 }
 
-#[test]
-fn test_monadio_async() {
+#[cfg(feature = "for_futures")]
+#[futures_test::test]
+async fn test_monadio_async() {
     assert_eq!(Arc::new(3), MonadIO::just(3).eval());
+    assert_eq!(
+        Arc::new(3),
+        MonadIO::just(3).to_future().await.ok().unwrap()
+    );
+    assert_eq!(
+        Arc::new(6),
+        MonadIO::just(3)
+            .map(|i| i * 2)
+            .to_future()
+            .await
+            .ok()
+            .unwrap()
+    );
 }
 
 #[test]

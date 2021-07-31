@@ -292,7 +292,7 @@ where
         }
     }
 
-    pub fn as_stream(&mut self) -> &dyn Stream<Item = Arc<T>> {
+    pub fn as_stream(&mut self) -> &impl Stream<Item = Arc<T>> {
         self.open_stream();
 
         self
@@ -384,6 +384,21 @@ where
             return Poll::Ready(None);
         }
         return Poll::Ready(None);
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.alive.is_none() || self.cached.is_none() {
+            if let Some(alive) = &self.alive {
+                // Check alive
+                if alive.lock().unwrap().load(Ordering::SeqCst) {
+                    return (0, Some(0));
+                }
+                return (0, None);
+            }
+            return (0, None);
+        } else {
+            return (0, None);
+        }
     }
 }
 
