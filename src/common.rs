@@ -14,13 +14,14 @@ use std::sync::{Arc, Mutex};
 #[cfg(feature = "for_futures")]
 use std::collections::VecDeque;
 #[cfg(feature = "for_futures")]
+use std::pin::Pin;
+#[cfg(feature = "for_futures")]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(feature = "for_futures")]
+use std::task::{Context, Poll, Waker};
 
 #[cfg(feature = "for_futures")]
 use futures::stream::Stream;
-
-#[cfg(feature = "for_futures")]
-use super::sync::{BlockingQueue, Queue};
 
 // pub trait FnMutReceiveThreadSafe<X>: FnMut(Arc<X>) + Send + Sync + 'static {}
 // pub trait FnMutReturnThreadSafe<X>: FnMut() -> X + Send + Sync + 'static {}
@@ -208,18 +209,49 @@ pub struct SubscriptionFunc<T> {
     pub receiver: RawReceiver<T>,
 
     #[cfg(feature = "for_futures")]
-    streams: Option<Arc<Mutex<VecDeque<BlockingQueue<Option<Arc<T>>>>>>>,
+    cached: Option<Arc<Mutex<VecDeque<Arc<T>>>>>,
     #[cfg(feature = "for_futures")]
     alive: Option<Arc<Mutex<AtomicBool>>>,
+    #[cfg(feature = "for_futures")]
+    waker: Arc<Mutex<Option<Waker>>>,
 }
 
 #[cfg(feature = "for_futures")]
 impl<T> SubscriptionFunc<T> {
-    pub fn close(&self) {
-        match &self.alive {
-            Some(alive) => alive.lock().unwrap().store(false, Ordering::SeqCst),
-            None => {}
+    pub fn close(&mut self) {
+        if let Some(alive) = &self.alive {
+            alive.lock().unwrap().store(false, Ordering::SeqCst);
+            self.alive = None;
         }
+
+        let old_cached = self.cached.clone();
+        self.cached = None;
+        if let Some(cached) = &old_cached {
+            cached.lock().unwrap().clear();
+        }
+    }
+}
+
+#[cfg(feature = "for_futures")]
+impl<T> SubscriptionFunc<T>
+where
+    T: 'static + Send,
+{
+    pub fn as_stream(&mut self) -> &dyn Stream<Item = Arc<T>> {
+        match &self.alive {
+            Some(alive) => {
+                alive.lock().unwrap().store(false, Ordering::SeqCst);
+            }
+            None => {
+                self.alive = Some(Arc::new(Mutex::new(AtomicBool::new(true))));
+            }
+        }
+
+        if self.cached.is_none() {
+            self.cached = Some(Arc::new(Mutex::new(VecDeque::new())));
+        }
+
+        self
     }
 }
 
@@ -234,9 +266,11 @@ impl<T: Send + Sync + 'static> SubscriptionFunc<T> {
             receiver: RawReceiver::new(func),
 
             #[cfg(feature = "for_futures")]
-            streams: None,
+            cached: None,
             #[cfg(feature = "for_futures")]
             alive: None,
+            #[cfg(feature = "for_futures")]
+            waker: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -259,15 +293,57 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
 
         #[cfg(feature = "for_futures")]
         {
-            match &self.streams {
-                Some(streams) => {
-                    for item in streams.lock().as_mut().ok().unwrap().iter_mut() {
-                        item.offer(Some(x.clone()));
-                    }
+            if self.alive.is_none() || self.cached.is_none() {
+                return;
+            }
+            if let Some(alive) = &self.alive {
+                if !alive.lock().unwrap().load(Ordering::SeqCst) {
+                    return;
                 }
-                None => {}
+            }
+            if let Some(cached) = &self.cached {
+                cached.lock().unwrap().push_back(x.clone());
             }
         }
+    }
+}
+
+#[cfg(feature = "for_futures")]
+impl<T> Stream for SubscriptionFunc<T>
+where
+    T: 'static + Send,
+{
+    type Item = Arc<T>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if self.alive.is_none() || self.cached.is_none() {
+            return Poll::Ready(None);
+        }
+
+        // Check alive
+        if let Some(alive) = &self.alive {
+            // Check alive
+            if alive.lock().unwrap().load(Ordering::SeqCst) {
+                // Check cached
+                if let Some(cached) = &self.cached {
+                    let picked: Option<Arc<T>>;
+                    {
+                        picked = cached.lock().unwrap().pop_front();
+                    }
+
+                    // Check Pending(None) or Ready(Some(item))
+                    if picked.is_none() {
+                        // Keep Pending
+                        self.waker.lock().unwrap().replace(cx.waker().clone());
+                        return Poll::Pending;
+                    }
+                    return Poll::Ready(picked);
+                }
+                return Poll::Ready(None);
+            }
+            return Poll::Ready(None);
+        }
+        return Poll::Ready(None);
     }
 }
 

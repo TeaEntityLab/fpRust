@@ -4,6 +4,11 @@ It's inspired by `Rx` & `MonadIO` in `Haskell`
 */
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "for_futures")]
+use std::error::Error;
+#[cfg(feature = "for_futures")]
+use tokio::task::spawn_blocking;
+
 use super::handler::Handler;
 
 use super::sync::CountDownLatch;
@@ -49,6 +54,14 @@ impl<Y: 'static + Send + Sync + Clone> From<Y> for MonadIO<Y> {
 impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
     pub fn just(r: Y) -> MonadIO<Y> {
         MonadIO::new(of(r))
+    }
+
+    #[cfg(feature = "for_futures")]
+    pub async fn to_future(&self) -> Result<Arc<Y>, Box<dyn Error>> {
+        // let mio = self.map(|y| y);
+        let mio = self.clone();
+        let result = spawn_blocking(move || mio.eval()).await?;
+        Ok(result)
     }
 }
 
@@ -174,11 +187,6 @@ impl<Y: 'static + Send + Sync> MonadIO<Y> {
         latch.wait();
         let result = result.lock().as_mut().unwrap().to_owned();
         result.unwrap()
-    }
-
-    #[cfg(feature = "for_futures")]
-    pub async fn to_future(&self) -> Arc<Y> {
-        self.eval()
     }
 }
 

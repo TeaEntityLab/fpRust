@@ -10,8 +10,6 @@ use std::sync::{
 use std::time::Duration;
 
 #[cfg(feature = "for_futures")]
-use futures::stream::Stream;
-#[cfg(feature = "for_futures")]
 use std::future::Future;
 #[cfg(feature = "for_futures")]
 use std::pin::Pin;
@@ -322,9 +320,6 @@ pub struct BlockingQueue<T> {
     alive: Arc<Mutex<AtomicBool>>,
     blocking_sender: Arc<Mutex<mpsc::Sender<T>>>,
     blocking_recever: Arc<Mutex<mpsc::Receiver<T>>>,
-
-    #[cfg(feature = "for_futures")]
-    waker: Arc<Mutex<Option<Waker>>>,
 }
 
 // impl <T> Copy for BlockingQueue<T> {
@@ -343,9 +338,6 @@ impl<T> Default for BlockingQueue<T> {
             panic: false,
             blocking_sender: Arc::new(Mutex::new(blocking_sender)),
             blocking_recever: Arc::new(Mutex::new(blocking_recever)),
-
-            #[cfg(feature = "for_futures")]
-            waker: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -370,13 +362,6 @@ impl<T> BlockingQueue<T> {
 
             let sender = self.blocking_sender.lock().unwrap();
             drop(sender);
-        }
-
-        #[cfg(feature = "for_futures")]
-        {
-            if let Some(waker) = self.waker.lock().unwrap().take() {
-                waker.wake()
-            }
         }
     }
 }
@@ -447,23 +432,6 @@ where
                     result.ok()
                 }
             }
-        }
-    }
-}
-
-#[cfg(feature = "for_futures")]
-impl<T> Stream for BlockingQueue<T>
-where
-    T: 'static + Send,
-{
-    type Item = T;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if !self.alive.lock().unwrap().load(Ordering::SeqCst) {
-            return Poll::Ready(None);
-        } else {
-            self.waker.lock().unwrap().replace(cx.waker().clone());
-            return Poll::Ready(self.take());
         }
     }
 }
