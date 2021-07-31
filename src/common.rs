@@ -14,14 +14,13 @@ use std::sync::{Arc, Mutex};
 #[cfg(feature = "for_futures")]
 use std::collections::VecDeque;
 #[cfg(feature = "for_futures")]
-use std::pin::Pin;
-#[cfg(feature = "for_futures")]
 use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(feature = "for_futures")]
-use std::task::{Context, Poll, Waker};
 
 #[cfg(feature = "for_futures")]
 use futures::stream::Stream;
+
+#[cfg(feature = "for_futures")]
+use super::sync::{BlockingQueue, Queue};
 
 // pub trait FnMutReceiveThreadSafe<X>: FnMut(Arc<X>) + Send + Sync + 'static {}
 // pub trait FnMutReturnThreadSafe<X>: FnMut() -> X + Send + Sync + 'static {}
@@ -209,17 +208,18 @@ pub struct SubscriptionFunc<T> {
     pub receiver: RawReceiver<T>,
 
     #[cfg(feature = "for_futures")]
-    waker: Arc<Mutex<Option<Waker>>>,
+    streams: Option<Arc<Mutex<VecDeque<BlockingQueue<Option<Arc<T>>>>>>>,
     #[cfg(feature = "for_futures")]
-    cached: Arc<Mutex<VecDeque<Arc<T>>>>,
-    #[cfg(feature = "for_futures")]
-    alive: Arc<Mutex<AtomicBool>>,
+    alive: Option<Arc<Mutex<AtomicBool>>>,
 }
 
 #[cfg(feature = "for_futures")]
 impl<T> SubscriptionFunc<T> {
-    fn close(&self) {
-        self.alive.lock().unwrap().store(false, Ordering::SeqCst)
+    pub fn close(&self) {
+        match &self.alive {
+            Some(alive) => alive.lock().unwrap().store(false, Ordering::SeqCst),
+            None => {}
+        }
     }
 }
 
@@ -234,11 +234,9 @@ impl<T: Send + Sync + 'static> SubscriptionFunc<T> {
             receiver: RawReceiver::new(func),
 
             #[cfg(feature = "for_futures")]
-            waker: Arc::new(Mutex::new(None)),
+            streams: None,
             #[cfg(feature = "for_futures")]
-            cached: Arc::new(Mutex::new(VecDeque::new())),
-            #[cfg(feature = "for_futures")]
-            alive: Arc::new(Mutex::new(AtomicBool::new(true))),
+            alive: None,
         }
     }
 }
@@ -261,43 +259,13 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
 
         #[cfg(feature = "for_futures")]
         {
-            if let Some(waker) = self.waker.lock().unwrap().take() {
-                self.cached
-                    .lock()
-                    .as_mut()
-                    .ok()
-                    .unwrap()
-                    .push_back(x.clone());
-                waker.wake()
-            }
-        }
-    }
-}
-
-#[cfg(feature = "for_futures")]
-impl<X> Stream for SubscriptionFunc<X>
-where
-    X: Clone + Send + Sync + 'static,
-{
-    type Item = X;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        {
-            if !self.alive.lock().unwrap().load(Ordering::SeqCst) {
-                return Poll::Ready(None);
-            }
-        }
-
-        let mut cached = self.cached.lock();
-        let cached = cached.as_mut().ok().unwrap();
-        if cached.is_empty() {
-            self.waker.lock().unwrap().replace(cx.waker().clone());
-            Poll::Pending
-        } else {
-            let mut item = cached.pop_front();
-            match &mut item {
-                Some(item) => Poll::Ready(Some(Arc::make_mut(item).to_owned())),
-                None => Poll::Ready(None),
+            match &self.streams {
+                Some(streams) => {
+                    for item in streams.lock().as_mut().ok().unwrap().iter_mut() {
+                        item.offer(Some(x.clone()));
+                    }
+                }
+                None => {}
             }
         }
     }
