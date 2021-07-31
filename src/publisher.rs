@@ -88,9 +88,11 @@ impl<X: Send + Sync + 'static> Publisher<X> {
     pub fn subscribe_on(&mut self, h: Option<Arc<Mutex<dyn Handler + 'static>>>) {
         self.sub_handler = h;
     }
+}
 
+impl<X: Send + Sync + 'static + Unpin> Publisher<X> {
     #[cfg(feature = "for_futures")]
-    pub fn subscribe_as_stream(&mut self) -> Arc<Mutex<dyn Stream<Item = Arc<X>>>> {
+    pub fn subscribe_as_stream(&mut self) -> Arc<Mutex<dyn Stream<Item = Arc<X>> + Unpin>> {
         let subscription = self.subscribe_fn(|_| {});
 
         {
@@ -130,8 +132,10 @@ impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<
             let observers = Arc::make_mut(&mut _observers);
 
             for (_, observer) in observers.iter().enumerate() {
-                let mut _observer = observer.lock().unwrap();
-                _observer.on_next(val.clone());
+                {
+                    let mut _observer = observer.lock().unwrap();
+                    _observer.on_next(val.clone());
+                }
             }
         });
 

@@ -258,7 +258,9 @@ pub struct SubscriptionFunc<T> {
 impl<T> SubscriptionFunc<T> {
     pub fn close_stream(&mut self) {
         if let Some(alive) = &self.alive {
-            alive.lock().unwrap().store(false, Ordering::SeqCst);
+            {
+                alive.lock().unwrap().store(false, Ordering::SeqCst);
+            }
             self.alive = None;
         }
 
@@ -267,7 +269,9 @@ impl<T> SubscriptionFunc<T> {
             self.cached = None;
         }
         if let Some(cached) = &old_cached {
-            cached.lock().unwrap().clear();
+            {
+                cached.lock().unwrap().clear();
+            }
         }
     }
 }
@@ -275,7 +279,7 @@ impl<T> SubscriptionFunc<T> {
 #[cfg(feature = "for_futures")]
 impl<T> SubscriptionFunc<T>
 where
-    T: 'static + Send,
+    T: 'static + Send + Unpin,
 {
     pub fn open_stream(&mut self) {
         match &self.alive {
@@ -339,8 +343,11 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
         {
             if let Some(alive) = &self.alive {
                 if let Some(cached) = &self.cached {
-                    if alive.lock().unwrap().load(Ordering::SeqCst) {
-                        cached.lock().unwrap().push_back(x.clone());
+                    let alive = { alive.lock().unwrap().load(Ordering::SeqCst) };
+                    if alive {
+                        {
+                            cached.lock().unwrap().push_back(x.clone())
+                        };
                     }
                 }
             }
@@ -351,7 +358,7 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
 #[cfg(feature = "for_futures")]
 impl<T> Stream for SubscriptionFunc<T>
 where
-    T: 'static + Send,
+    T: 'static + Send + Unpin,
 {
     type Item = Arc<T>;
 
@@ -363,7 +370,8 @@ where
         // Check alive
         if let Some(alive) = &self.alive {
             // Check alive
-            if alive.lock().unwrap().load(Ordering::SeqCst) {
+            let alive = { alive.lock().unwrap().load(Ordering::SeqCst) };
+            if alive {
                 // Check cached
                 if let Some(cached) = &self.cached {
                     let picked: Option<Arc<T>>;
@@ -374,7 +382,9 @@ where
                     // Check Pending(None) or Ready(Some(item))
                     if picked.is_none() {
                         // Keep Pending
-                        self.waker.lock().unwrap().replace(cx.waker().clone());
+                        {
+                            self.waker.lock().unwrap().replace(cx.waker().clone())
+                        };
                         return Poll::Pending;
                     }
                     return Poll::Ready(picked);
@@ -390,7 +400,8 @@ where
         if self.alive.is_none() || self.cached.is_none() {
             if let Some(alive) = &self.alive {
                 // Check alive
-                if alive.lock().unwrap().load(Ordering::SeqCst) {
+                let alive = { alive.lock().unwrap().load(Ordering::SeqCst) };
+                if alive {
                     return (0, Some(0));
                 }
                 return (0, None);
