@@ -36,7 +36,6 @@ Thus I implemented fpRust. I hope you would like it :)
 
 * Async (*`fp_rust::sync`* & *`fp_rust::handler::HandlerThread`*)
   * simple BlockingQueue (inspired by *`Java BlockingQueue`*, implemented by built-in *`std::sync::mpsc::channel`*)
-    * Support *`Stream`* implementation with *`feature: for_futures`
   * HandlerThread (inspired by *`Android Handler`*, implemented by built-in *`std::thread`*)
   * WillAsync (inspired by *`Java Future`*)
     * Support *`to_future()`* with *`feature: for_futures`

@@ -5,9 +5,11 @@ It's inspired by `Rx` & `MonadIO` in `Haskell`
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "for_futures")]
-use std::error::Error;
+use super::common::shared_thread_pool;
 #[cfg(feature = "for_futures")]
-use tokio::task::spawn_blocking;
+use crate::futures::task::SpawnExt;
+#[cfg(feature = "for_futures")]
+use std::error::Error;
 
 use super::handler::Handler;
 
@@ -60,7 +62,12 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
     pub async fn to_future(&self) -> Result<Arc<Y>, Box<dyn Error>> {
         // let mio = self.map(|y| y);
         let mio = self.clone();
-        let result = spawn_blocking(move || mio.eval()).await?;
+        let result = shared_thread_pool()
+            .inner
+            .lock()
+            .unwrap()
+            .spawn_with_handle(async move { mio.eval() })?
+            .await;
         Ok(result)
     }
 }

@@ -14,17 +14,55 @@ use std::sync::{Arc, Mutex};
 #[cfg(feature = "for_futures")]
 use std::collections::VecDeque;
 #[cfg(feature = "for_futures")]
+use std::mem;
+#[cfg(feature = "for_futures")]
 use std::pin::Pin;
 #[cfg(feature = "for_futures")]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Once,
+};
 #[cfg(feature = "for_futures")]
 use std::task::{Context, Poll, Waker};
 
+#[cfg(feature = "for_futures")]
+use futures::executor::ThreadPool;
 #[cfg(feature = "for_futures")]
 use futures::stream::Stream;
 
 // pub trait FnMutReceiveThreadSafe<X>: FnMut(Arc<X>) + Send + Sync + 'static {}
 // pub trait FnMutReturnThreadSafe<X>: FnMut() -> X + Send + Sync + 'static {}
+
+#[cfg(feature = "for_futures")]
+#[derive(Clone)]
+pub struct SharedThreadPoolReader {
+    // Since we will be used in many threads, we need to protect
+    // concurrent access
+    pub inner: Arc<Mutex<ThreadPool>>,
+}
+#[cfg(feature = "for_futures")]
+pub fn shared_thread_pool() -> SharedThreadPoolReader {
+    // Initialize it to a null value
+    static mut SINGLETON: *const SharedThreadPoolReader = 0 as *const SharedThreadPoolReader;
+    static ONCE: Once = Once::new();
+
+    unsafe {
+        ONCE.call_once(|| {
+            // Make it
+            let singleton = SharedThreadPoolReader {
+                inner: Arc::new(Mutex::new(
+                    ThreadPool::new().expect("Unable to create threadpool"),
+                )),
+            };
+
+            // Put it in the heap so it can outlive this call
+            SINGLETON = mem::transmute(Box::new(singleton));
+        });
+
+        // Now we give out a copy of the data that is safe to use concurrently.
+        (*SINGLETON).clone()
+    }
+}
 
 /**
 

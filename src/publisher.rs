@@ -158,9 +158,10 @@ impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<
 
 #[test]
 fn test_publisher_new() {
+    use std::sync::Arc;
+
     use super::common::SubscriptionFunc;
     use super::handler::HandlerThread;
-    use std::sync::Arc;
 
     use super::sync::CountDownLatch;
 

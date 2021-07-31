@@ -21,12 +21,14 @@ path = "src/lib.rs"
 
 [features]
 default = []
-for_futures = [ "futures", "tokio" ]
+for_futures = [ "futures", "futures-test" ]
+# for_futures = [ "futures", "tokio" ]
 pure = [ ]
 
 # For test
 test_runtime = [ "for_futures" ]
 
 [dependencies]
-tokio = { version = "^1.9.0", features = ["full"], optional = true }
-futures = { version = "0.3", default-features = false, optional = true }
+# tokio = { version = "^1.9.0", features = ["full"], optional = true }
+futures = { version = "0.3", default-features = false, features = ["thread-pool"], optional = true }
+futures-test = { version = "0.3", optional = true }
