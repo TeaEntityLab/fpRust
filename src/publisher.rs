@@ -90,16 +90,16 @@ impl<X: Send + Sync + 'static> Publisher<X> {
     }
 }
 
-impl<X: Send + Sync + 'static + Unpin> Publisher<X> {
+impl<X: Send + Sync + 'static + Unpin + Clone> Publisher<X> {
     #[cfg(feature = "for_futures")]
-    pub fn subscribe_as_stream(&mut self) -> Arc<Mutex<dyn Stream<Item = Arc<X>> + Unpin>> {
-        let subscription = self.subscribe_fn(|_| {});
+    pub fn subscribe_as_stream(
+        &mut self,
+        s: Arc<Mutex<SubscriptionFunc<X>>>,
+    ) -> impl Stream<Item = Arc<X>> + Unpin {
+        let s = self.subscribe(s);
 
-        {
-            subscription.lock().unwrap().open_stream();
-        }
-
-        subscription
+        let mut s = s.lock().unwrap();
+        s.as_stream()
     }
 }
 impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<X> {
@@ -158,6 +158,69 @@ impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<
             }
         };
     }
+}
+
+#[cfg(feature = "for_futures")]
+#[futures_test::test]
+async fn test_publisher_stream() {
+    use std::sync::Arc;
+
+    use futures::StreamExt;
+
+    use super::common::SubscriptionFunc;
+    use super::handler::HandlerThread;
+
+    use super::sync::CountDownLatch;
+
+    let mut _h = HandlerThread::new_with_mutex();
+
+    let mut pub1 = Publisher::new_with_handlers(Some(_h.clone()));
+
+    let latch = CountDownLatch::new(4);
+    let latch2 = latch.clone();
+
+    //*
+    let s = pub1.subscribe_as_stream(Arc::new(Mutex::new(SubscriptionFunc::new(move |_| {
+        println!("{:?}", "SS");
+        latch2.countdown();
+    }))));
+    // */
+    {
+        let h = &mut _h.lock().unwrap();
+
+        println!("hh2");
+        h.start();
+        println!("hh2 running");
+    }
+
+    pub1.publish(1);
+    pub1.publish(2);
+    pub1.publish(3);
+    pub1.publish(4);
+
+    // let _ = latch.wait_async().await;
+
+    let mut got_list = Vec::<Arc<i32>>::new();
+    {
+        let mut result = s;
+        for n in 1..5 {
+            println!("{:?}: {:?}", n, "Before");
+            let item = result.next().await;
+            if let Some(result) = item.clone() {
+                (&mut got_list).push(result.clone());
+            }
+            println!("{:?}: {:?}", n, item);
+        }
+        // let result = s.lock().as_deref().unwrap().collect::<Vec<_>>().await;
+        // assert_eq!(
+        //     vec![Arc::new(1), Arc::new(2), Arc::new(3), Arc::new(4),],
+        //     result
+        // );
+    }
+    assert_eq!(
+        vec![Arc::new(1), Arc::new(2), Arc::new(3), Arc::new(4),],
+        got_list
+    );
 }
 
 #[test]

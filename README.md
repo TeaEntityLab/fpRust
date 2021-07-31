@@ -38,7 +38,7 @@ Thus I implemented fpRust. I hope you would like it :)
   * simple BlockingQueue (inspired by *`Java BlockingQueue`*, implemented by built-in *`std::sync::mpsc::channel`*)
   * HandlerThread (inspired by *`Android Handler`*, implemented by built-in *`std::thread`*)
   * WillAsync (inspired by *`Java Future`*)
-    * Support *`to_future()`* with *`feature: for_futures`
+    * Support as a *`Future`* with *`feature: for_futures`
   * CountDownLatch (inspired by *`Java CountDownLatch`*, implemented by built-in *`std::sync::Mutex`*)
 
 * Cor (*`fp_rust::cor::Cor`*)

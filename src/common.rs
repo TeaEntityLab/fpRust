@@ -241,7 +241,7 @@ for general purposes crossing over many modules of fpRust.
 It's enough to use for general cases of `Subscription`.
 
 */
-#[derive(Clone)]
+// #[derive(Clone)]
 pub struct SubscriptionFunc<T> {
     id: String,
     pub receiver: RawReceiver<T>,
@@ -252,6 +252,34 @@ pub struct SubscriptionFunc<T> {
     alive: Option<Arc<Mutex<AtomicBool>>>,
     #[cfg(feature = "for_futures")]
     waker: Arc<Mutex<Option<Waker>>>,
+}
+
+impl<T> SubscriptionFunc<T> {
+    fn generate_id() -> String {
+        let since_the_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards");
+
+        format!("{:?}{:?}", thread::current().id(), since_the_epoch)
+    }
+}
+
+impl<T> Clone for SubscriptionFunc<T> {
+    fn clone(&self) -> Self {
+        SubscriptionFunc {
+            id: Self::generate_id(),
+            receiver: RawReceiver {
+                func: self.receiver.func.clone(),
+                _t: PhantomData,
+            },
+            #[cfg(feature = "for_futures")]
+            cached: self.cached.clone(),
+            #[cfg(feature = "for_futures")]
+            alive: self.alive.clone(),
+            #[cfg(feature = "for_futures")]
+            waker: self.waker.clone(),
+        }
+    }
 }
 
 #[cfg(feature = "for_futures")]
@@ -294,23 +322,26 @@ where
         if self.cached.is_none() {
             self.cached = Some(Arc::new(Mutex::new(VecDeque::new())));
         }
+
+        {
+            if let Some(waker) = self.waker.clone().lock().unwrap().take() {
+                self.waker = Arc::new(Mutex::new(None));
+                waker.wake();
+            }
+        }
     }
 
-    pub fn as_stream(&mut self) -> &impl Stream<Item = Arc<T>> {
+    pub fn as_stream(&mut self) -> impl Stream<Item = Arc<T>> {
         self.open_stream();
 
-        self
+        SubscriptionFuncStream { 0: self.clone() }
     }
 }
 
 impl<T: Send + Sync + 'static> SubscriptionFunc<T> {
     pub fn new(func: impl FnMut(Arc<T>) + Send + Sync + 'static) -> SubscriptionFunc<T> {
-        let since_the_epoch = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards");
-
         SubscriptionFunc {
-            id: format!("{:?}{:?}", thread::current().id(), since_the_epoch),
+            id: Self::generate_id(),
             receiver: RawReceiver::new(func),
 
             #[cfg(feature = "for_futures")]
@@ -348,6 +379,11 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
                         {
                             cached.lock().unwrap().push_back(x.clone())
                         };
+                        {
+                            if let Some(waker) = self.waker.lock().unwrap().take() {
+                                waker.wake()
+                            }
+                        }
                     }
                 }
             }
@@ -355,25 +391,27 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
     }
 }
 
+pub struct SubscriptionFuncStream<T>(SubscriptionFunc<T>);
+
 #[cfg(feature = "for_futures")]
-impl<T> Stream for SubscriptionFunc<T>
+impl<T> Stream for SubscriptionFuncStream<T>
 where
     T: 'static + Send + Unpin,
 {
     type Item = Arc<T>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.alive.is_none() || self.cached.is_none() {
+        if self.0.alive.is_none() || self.0.cached.is_none() {
             return Poll::Ready(None);
         }
 
         // Check alive
-        if let Some(alive) = &self.alive {
+        if let Some(alive) = &self.0.alive {
             // Check alive
             let alive = { alive.lock().unwrap().load(Ordering::SeqCst) };
             if alive {
                 // Check cached
-                if let Some(cached) = &self.cached {
+                if let Some(cached) = &self.0.cached {
                     let picked: Option<Arc<T>>;
                     {
                         picked = cached.lock().unwrap().pop_front();
@@ -383,7 +421,7 @@ where
                     if picked.is_none() {
                         // Keep Pending
                         {
-                            self.waker.lock().unwrap().replace(cx.waker().clone())
+                            self.0.waker.lock().unwrap().replace(cx.waker().clone())
                         };
                         return Poll::Pending;
                     }
@@ -397,8 +435,8 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.alive.is_none() || self.cached.is_none() {
-            if let Some(alive) = &self.alive {
+        if self.0.alive.is_none() || self.0.cached.is_none() {
+            if let Some(alive) = &self.0.alive {
                 // Check alive
                 let alive = { alive.lock().unwrap().load(Ordering::SeqCst) };
                 if alive {
