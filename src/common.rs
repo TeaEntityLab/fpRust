@@ -288,7 +288,8 @@ impl<T> SubscriptionFunc<T> {
 impl<T> Clone for SubscriptionFunc<T> {
     fn clone(&self) -> Self {
         SubscriptionFunc {
-            id: Self::generate_id(),
+            // id: Self::generate_id(),
+            id: self.id.clone(),
             receiver: RawReceiver {
                 func: self.receiver.func.clone(),
                 _t: PhantomData,
