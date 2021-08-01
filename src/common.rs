@@ -292,7 +292,7 @@ impl<T> SubscriptionFunc<T> {
             self.alive = None;
         }
 
-        let old_cached = self.cached.clone();
+        // let old_cached = self.cached.clone();
         if self.cached.is_some() {
             self.cached = None;
         }
@@ -433,7 +433,7 @@ where
             {
                 picked = cached.lock().unwrap().pop_front();
             }
-            if (picked.is_some()) {
+            if picked.is_some() {
                 return Poll::Ready(picked);
             }
         }

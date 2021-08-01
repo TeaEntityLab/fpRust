@@ -6,8 +6,6 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "for_futures")]
 use super::common::SubscriptionFuncStream;
-#[cfg(feature = "for_futures")]
-use futures::stream::Stream;
 
 use super::common::{Observable, RawFunc, Subscription, SubscriptionFunc, UniqueId};
 use super::handler::Handler;
@@ -112,8 +110,11 @@ impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<
     fn delete_observer(&mut self, observer: Arc<Mutex<SubscriptionFunc<X>>>) {
         let id;
         {
-            let _observer = &*observer.lock().unwrap();
+            let _observer = &mut *observer.lock().unwrap();
             id = _observer.get_id();
+
+            #[cfg(feature = "for_futures")]
+            _observer.close_stream();
         }
 
         for (index, obs) in self.observers.clone().iter().enumerate() {
@@ -172,7 +173,7 @@ async fn test_publisher_stream() {
     use super::common::SubscriptionFunc;
     use super::handler::HandlerThread;
 
-    use super::sync::CountDownLatch;
+    // use super::sync::CountDownLatch;
 
     let mut _h = HandlerThread::new_with_mutex();
     let mut pub1 = Publisher::new_with_handlers(Some(_h.clone()));
@@ -225,7 +226,7 @@ async fn test_publisher_stream() {
     pub1.publish(10);
     pub1.publish(11);
     pub1.publish(12);
-    let mut got_list = Vec::<Arc<i32>>::new();
+    // let mut got_list = Vec::<Arc<i32>>::new();
     {
         // let mut result = s;
         // for n in 1..5 {
