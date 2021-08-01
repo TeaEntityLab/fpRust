@@ -298,10 +298,10 @@ impl Future for CountDownLatch {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let &(ref remaining, _) = &*self.pair.clone();
         if *remaining.lock().unwrap() > 0 {
-            Poll::Ready(())
-        } else {
             self.waker.lock().unwrap().replace(cx.waker().clone());
             Poll::Pending
+        } else {
+            Poll::Ready(())
         }
     }
 }
@@ -477,7 +477,7 @@ async fn test_sync_future() {
     let latch2 = latch.clone();
 
     let _ = pub1.subscribe(Arc::new(Mutex::new(SubscriptionFunc::new(move |_| {
-        println!("{:?}", "SS");
+        println!("{:?}", "test_sync_future");
         latch2.countdown();
     }))));
 
