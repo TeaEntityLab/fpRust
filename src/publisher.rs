@@ -94,15 +94,20 @@ where
         self.delete_observer(s);
     }
 
-    pub fn subscribe_blocking_queue(&mut self, queue: &BlockingQueue<Arc<X>>) {
+    pub fn subscribe_blocking_queue(
+        &mut self,
+        queue: &BlockingQueue<Arc<X>>,
+    ) -> Arc<Mutex<SubscriptionFunc<X>>> {
         let mut queue_new = queue.clone();
-        self.subscribe_fn(move |v| queue_new.put(v));
+        self.subscribe_fn(move |v| queue_new.put(v))
     }
-    pub fn as_blocking_queue(&mut self) -> BlockingQueue<Arc<X>> {
+    pub fn as_blocking_queue(
+        &mut self,
+    ) -> (Arc<Mutex<SubscriptionFunc<X>>>, BlockingQueue<Arc<X>>) {
         let queue = BlockingQueue::new();
-        self.subscribe_blocking_queue(&queue);
+        let subscription = self.subscribe_blocking_queue(&queue);
 
-        queue
+        (subscription, queue)
     }
 }
 
