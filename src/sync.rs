@@ -10,12 +10,6 @@ use std::sync::{
 use std::time::Duration;
 
 #[cfg(feature = "for_futures")]
-use super::common::shared_thread_pool;
-#[cfg(feature = "for_futures")]
-use crate::futures::task::SpawnExt;
-#[cfg(feature = "for_futures")]
-use std::error::Error;
-#[cfg(feature = "for_futures")]
 use std::future::Future;
 #[cfg(feature = "for_futures")]
 use std::pin::Pin;
@@ -240,12 +234,18 @@ It's inspired by `CountDownLatch` in `Java`
 #[derive(Debug, Clone)]
 pub struct CountDownLatch {
     pair: Arc<(Arc<Mutex<u64>>, Condvar)>,
+
+    #[cfg(feature = "for_futures")]
+    waker: Arc<Mutex<Option<Waker>>>,
 }
 
 impl CountDownLatch {
     pub fn new(count: u64) -> CountDownLatch {
         CountDownLatch {
             pair: Arc::new((Arc::new(Mutex::new(count)), Condvar::new())),
+
+            #[cfg(feature = "for_futures")]
+            waker: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -256,6 +256,13 @@ impl CountDownLatch {
             *started -= 1;
         }
         cvar.notify_one();
+
+        #[cfg(feature = "for_futures")]
+        {
+            if let Some(waker) = self.waker.lock().unwrap().take() {
+                waker.wake()
+            }
+        }
     }
 
     pub fn wait(&self) {
@@ -282,17 +289,20 @@ impl CountDownLatch {
             }
         }
     }
+}
 
-    #[cfg(feature = "for_futures")]
-    pub async fn wait_async(&self) -> Result<(), Box<dyn Error>> {
-        let c = self.clone();
-        shared_thread_pool()
-            .inner
-            .lock()
-            .unwrap()
-            .spawn_with_handle(async move { c.wait() })?
-            .await;
-        Ok(())
+#[cfg(feature = "for_futures")]
+impl Future for CountDownLatch {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let &(ref remaining, _) = &*self.pair.clone();
+        if *remaining.lock().unwrap() > 0 {
+            Poll::Ready(())
+        } else {
+            self.waker.lock().unwrap().replace(cx.waker().clone());
+            Poll::Pending
+        }
     }
 }
 
@@ -484,7 +494,7 @@ async fn test_sync_future() {
     pub1.publish(3);
     pub1.publish(4);
 
-    let _ = latch.wait_async().await;
+    let _ = latch.await;
 }
 
 #[test]

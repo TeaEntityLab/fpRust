@@ -40,7 +40,7 @@ Thus I implemented fpRust. I hope you would like it :)
   * WillAsync (inspired by *`Java Future`*)
     * Support as a *`Future`* with *`feature: for_futures`
   * CountDownLatch (inspired by *`Java CountDownLatch`*, implemented by built-in *`std::sync::Mutex`*)
-    * Support *`Future`* (*`wait_async()`*) with *`feature: for_futures`
+    * Support as a *`Future`* with *`feature: for_futures`
 
 * Cor (*`fp_rust::cor::Cor`*)
   * PythonicGenerator-like Coroutine
