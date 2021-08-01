@@ -90,16 +90,22 @@ impl<X: Send + Sync + 'static> Publisher<X> {
     }
 }
 
-impl<X: Send + Sync + 'static + Unpin + Clone> Publisher<X> {
-    #[cfg(feature = "for_futures")]
+#[cfg(feature = "for_futures")]
+impl<X: Send + Sync + 'static + Unpin> Publisher<X> {
     pub fn subscribe_as_stream(
         &mut self,
         s: Arc<Mutex<SubscriptionFunc<X>>>,
     ) -> SubscriptionFuncStream<X> {
-        let s = self.subscribe(s);
-
-        let mut s = s.lock().unwrap();
-        s.as_stream()
+        self.subscribe(s).lock().unwrap().as_stream()
+    }
+    pub fn subscribe_fn_as_stream(
+        &mut self,
+        func: impl FnMut(Arc<X>) + Send + Sync + 'static,
+    ) -> SubscriptionFuncStream<X> {
+        self.subscribe_fn(func).lock().unwrap().as_stream()
+    }
+    pub fn as_stream(&mut self) -> SubscriptionFuncStream<X> {
+        self.subscribe_fn_as_stream(|_| {})
     }
 }
 impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<X> {
@@ -214,6 +220,7 @@ async fn test_publisher_stream() {
     pub1.publish(6);
     pub1.publish(7);
     pub1.publish(8);
+    let s2 = pub1.as_stream();
     {
         let h = &mut _h.lock().unwrap();
 
@@ -226,21 +233,23 @@ async fn test_publisher_stream() {
     pub1.publish(10);
     pub1.publish(11);
     pub1.publish(12);
-    // let mut got_list = Vec::<Arc<i32>>::new();
     {
-        // let mut result = s;
-        // for n in 1..5 {
-        //     println!("{:?}: {:?}", n, "Before");
-        //     let item = result.next().await;
-        //     if let Some(result) = item.clone() {
-        //         (&mut got_list).push(result.clone());
-        //     }
-        //     println!("{:?}: {:?}", n, item);
-        // }
-        got_list = s.clone().collect::<Vec<_>>().await;
+        let h = &mut _h.lock().unwrap();
+
+        let mut s2 = s2.clone();
+        h.post(RawFunc::new(move || {
+            s2.close_stream();
+        }));
     }
+
+    got_list = s.clone().collect::<Vec<_>>().await;
     assert_eq!(
         vec![Arc::new(5), Arc::new(6), Arc::new(7), Arc::new(8),],
+        got_list
+    );
+    got_list = s2.clone().collect::<Vec<_>>().await;
+    assert_eq!(
+        vec![Arc::new(9), Arc::new(10), Arc::new(11), Arc::new(12),],
         got_list
     );
 }

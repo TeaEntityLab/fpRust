@@ -34,6 +34,9 @@ use futures::stream::Stream;
 // pub trait FnMutReturnThreadSafe<X>: FnMut() -> X + Send + Sync + 'static {}
 
 #[cfg(feature = "for_futures")]
+static SUBSCRIPTION_FUNC_STREAM_CACHED_CAPACITY: usize = 10;
+
+#[cfg(feature = "for_futures")]
 #[derive(Clone)]
 pub struct SharedThreadPoolReader {
     // Since we will be used in many threads, we need to protect
@@ -329,7 +332,9 @@ where
         }
 
         if self.cached.is_none() {
-            self.cached = Some(Arc::new(Mutex::new(VecDeque::new())));
+            self.cached = Some(Arc::new(Mutex::new(VecDeque::with_capacity(
+                SUBSCRIPTION_FUNC_STREAM_CACHED_CAPACITY,
+            ))));
         }
     }
 
@@ -379,7 +384,9 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
                     let alive = { alive.lock().unwrap().load(Ordering::SeqCst) };
                     if alive {
                         {
-                            cached.lock().unwrap().push_back(x.clone())
+                            let mut cached = cached.lock().unwrap();
+                            cached.reserve_exact(SUBSCRIPTION_FUNC_STREAM_CACHED_CAPACITY);
+                            cached.push_back(x.clone())
                         };
                         {
                             if let Some(waker) = self.waker.lock().unwrap().take() {
