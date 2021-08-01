@@ -96,16 +96,18 @@ where
 
     pub fn subscribe_blocking_queue(
         &mut self,
-        queue: Arc<Mutex<BlockingQueue<Arc<X>>>>,
-    ) -> Arc<Mutex<SubscriptionFunc<X>>> {
-        self.subscribe_fn(move |v| queue.lock().unwrap().offer(v))
+        queue: BlockingQueue<Arc<X>>,
+    ) -> BlockingQueue<Arc<X>> {
+        let mut queue_new: BlockingQueue<Arc<X>>;
+        {
+            queue_new = queue.clone();
+        }
+        self.subscribe_fn(move |v| queue_new.put(v));
+
+        queue
     }
     pub fn as_blocking_queue(&mut self) -> BlockingQueue<Arc<X>> {
-        let queue = BlockingQueue::new();
-        let queue_result = queue.clone();
-        self.subscribe_blocking_queue(Arc::new(Mutex::new(queue)));
-
-        queue_result
+        self.subscribe_blocking_queue(BlockingQueue::new())
     }
 }
 
