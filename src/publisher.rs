@@ -9,6 +9,7 @@ use super::common::SubscriptionFuncStream;
 
 use super::common::{Observable, RawFunc, Subscription, SubscriptionFunc, UniqueId};
 use super::handler::Handler;
+use super::sync::{BlockingQueue, Queue};
 
 /**
 The `Publisher` implements *PubSub-like* features.
@@ -43,7 +44,7 @@ impl<X> Default for Publisher<X> {
     }
 }
 
-impl<X: Send + Sync + 'static> Publisher<X> {
+impl<X> Publisher<X> {
     pub fn new() -> Publisher<X> {
         Default::default()
     }
@@ -53,6 +54,14 @@ impl<X: Send + Sync + 'static> Publisher<X> {
         new_one
     }
 
+    pub fn subscribe_on(&mut self, h: Option<Arc<Mutex<dyn Handler + 'static>>>) {
+        self.sub_handler = h;
+    }
+}
+impl<X> Publisher<X>
+where
+    X: Send + Sync + 'static,
+{
     pub fn publish(&mut self, val: X) {
         self.notify_observers(Arc::new(val));
     }
@@ -85,8 +94,18 @@ impl<X: Send + Sync + 'static> Publisher<X> {
         self.delete_observer(s);
     }
 
-    pub fn subscribe_on(&mut self, h: Option<Arc<Mutex<dyn Handler + 'static>>>) {
-        self.sub_handler = h;
+    pub fn subscribe_blocking_queue(
+        &mut self,
+        queue: Arc<Mutex<BlockingQueue<Arc<X>>>>,
+    ) -> Arc<Mutex<SubscriptionFunc<X>>> {
+        self.subscribe_fn(move |v| queue.lock().unwrap().offer(v))
+    }
+    pub fn as_blocking_queue(&mut self) -> BlockingQueue<Arc<X>> {
+        let queue = BlockingQueue::new();
+        let queue_result = queue.clone();
+        self.subscribe_blocking_queue(Arc::new(Mutex::new(queue)));
+
+        queue_result
     }
 }
 
