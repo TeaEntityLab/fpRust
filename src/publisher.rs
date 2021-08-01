@@ -209,6 +209,39 @@ async fn test_publisher_stream() {
         vec![Arc::new(1), Arc::new(2), Arc::new(3), Arc::new(4),],
         got_list
     );
+    pub1.publish(5);
+    pub1.publish(6);
+    pub1.publish(7);
+    pub1.publish(8);
+    {
+        let h = &mut _h.lock().unwrap();
+
+        let mut s = s.clone();
+        h.post(RawFunc::new(move || {
+            s.close_stream();
+        }));
+    }
+    pub1.publish(9);
+    pub1.publish(10);
+    pub1.publish(11);
+    pub1.publish(12);
+    let mut got_list = Vec::<Arc<i32>>::new();
+    {
+        // let mut result = s;
+        // for n in 1..5 {
+        //     println!("{:?}: {:?}", n, "Before");
+        //     let item = result.next().await;
+        //     if let Some(result) = item.clone() {
+        //         (&mut got_list).push(result.clone());
+        //     }
+        //     println!("{:?}: {:?}", n, item);
+        // }
+        got_list = s.clone().collect::<Vec<_>>().await;
+    }
+    assert_eq!(
+        vec![Arc::new(5), Arc::new(6), Arc::new(7), Arc::new(8),],
+        got_list
+    );
 }
 
 #[test]

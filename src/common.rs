@@ -296,11 +296,13 @@ impl<T> SubscriptionFunc<T> {
         if self.cached.is_some() {
             self.cached = None;
         }
+        /*
         if let Some(cached) = &old_cached {
             {
                 cached.lock().unwrap().clear();
             }
         }
+        // */
 
         {
             if let Some(waker) = self.waker.clone().lock().unwrap().take() {
@@ -316,7 +318,7 @@ impl<T> SubscriptionFunc<T>
 where
     T: 'static + Send + Unpin,
 {
-    pub fn open_stream(&mut self) {
+    fn open_stream(&mut self) {
         match &self.alive {
             Some(alive) => {
                 alive.lock().unwrap().store(true, Ordering::SeqCst);
@@ -422,8 +424,18 @@ where
     type Item = Arc<T>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.0.alive.is_none() || self.0.cached.is_none() {
+        if self.0.alive.is_none() && self.0.cached.is_none() {
             return Poll::Ready(None);
+        }
+
+        if let Some(cached) = &self.0.cached {
+            let picked: Option<Arc<T>>;
+            {
+                picked = cached.lock().unwrap().pop_front();
+            }
+            if (picked.is_some()) {
+                return Poll::Ready(picked);
+            }
         }
 
         // Check alive
