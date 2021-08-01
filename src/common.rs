@@ -34,7 +34,7 @@ use futures::stream::Stream;
 // pub trait FnMutReturnThreadSafe<X>: FnMut() -> X + Send + Sync + 'static {}
 
 #[cfg(feature = "for_futures")]
-static SUBSCRIPTION_FUNC_STREAM_CACHED_CAPACITY: usize = 10;
+static DEFAULT_STREAM_CACHED_CAPACITY_BLOCK_SIZE: usize = 10;
 
 #[cfg(feature = "for_futures")]
 #[derive(Clone)]
@@ -252,6 +252,8 @@ pub struct SubscriptionFunc<T> {
     #[cfg(feature = "for_futures")]
     cached: Option<Arc<Mutex<VecDeque<Arc<T>>>>>,
     #[cfg(feature = "for_futures")]
+    cached_capacity_block_size: usize,
+    #[cfg(feature = "for_futures")]
     alive: Option<Arc<Mutex<AtomicBool>>>,
     #[cfg(feature = "for_futures")]
     waker: Arc<Mutex<Option<Waker>>>,
@@ -264,6 +266,22 @@ impl<T> SubscriptionFunc<T> {
             .expect("Time went backwards");
 
         format!("{:?}{:?}", thread::current().id(), since_the_epoch)
+    }
+
+    pub fn new(func: impl FnMut(Arc<T>) + Send + Sync + 'static) -> SubscriptionFunc<T> {
+        SubscriptionFunc {
+            id: Self::generate_id(),
+            receiver: RawReceiver::new(func),
+
+            #[cfg(feature = "for_futures")]
+            cached: None,
+            #[cfg(feature = "for_futures")]
+            cached_capacity_block_size: DEFAULT_STREAM_CACHED_CAPACITY_BLOCK_SIZE,
+            #[cfg(feature = "for_futures")]
+            alive: None,
+            #[cfg(feature = "for_futures")]
+            waker: Arc::new(Mutex::new(None)),
+        }
     }
 }
 
@@ -278,6 +296,8 @@ impl<T> Clone for SubscriptionFunc<T> {
             #[cfg(feature = "for_futures")]
             cached: self.cached.clone(),
             #[cfg(feature = "for_futures")]
+            cached_capacity_block_size: self.cached_capacity_block_size,
+            #[cfg(feature = "for_futures")]
             alive: self.alive.clone(),
             #[cfg(feature = "for_futures")]
             waker: self.waker.clone(),
@@ -287,6 +307,13 @@ impl<T> Clone for SubscriptionFunc<T> {
 
 #[cfg(feature = "for_futures")]
 impl<T> SubscriptionFunc<T> {
+    #[cfg(feature = "for_futures")]
+    pub fn set_stream_cached_capacity_block_size(&mut self, size: usize) {
+        if size > 0 {
+            self.cached_capacity_block_size = size;
+        }
+    }
+
     pub fn close_stream(&mut self) {
         if let Some(alive) = &self.alive {
             {
@@ -319,7 +346,7 @@ impl<T> SubscriptionFunc<T> {
 #[cfg(feature = "for_futures")]
 impl<T> SubscriptionFunc<T>
 where
-    T: 'static + Send + Unpin,
+    T: Unpin,
 {
     fn open_stream(&mut self) {
         match &self.alive {
@@ -333,7 +360,7 @@ where
 
         if self.cached.is_none() {
             self.cached = Some(Arc::new(Mutex::new(VecDeque::with_capacity(
-                SUBSCRIPTION_FUNC_STREAM_CACHED_CAPACITY,
+                self.cached_capacity_block_size,
             ))));
         }
     }
@@ -345,29 +372,13 @@ where
     }
 }
 
-impl<T: Send + Sync + 'static> SubscriptionFunc<T> {
-    pub fn new(func: impl FnMut(Arc<T>) + Send + Sync + 'static) -> SubscriptionFunc<T> {
-        SubscriptionFunc {
-            id: Self::generate_id(),
-            receiver: RawReceiver::new(func),
-
-            #[cfg(feature = "for_futures")]
-            cached: None,
-            #[cfg(feature = "for_futures")]
-            alive: None,
-            #[cfg(feature = "for_futures")]
-            waker: Arc::new(Mutex::new(None)),
-        }
-    }
-}
-
 impl<T> UniqueId<String> for SubscriptionFunc<T> {
     fn get_id(&self) -> String {
         self.id.clone()
     }
 }
 
-impl<T: Send + Sync + 'static> PartialEq for SubscriptionFunc<T> {
+impl<T> PartialEq for SubscriptionFunc<T> {
     fn eq(&self, other: &SubscriptionFunc<T>) -> bool {
         self.id == other.id
     }
@@ -385,7 +396,7 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
                     if alive {
                         {
                             let mut cached = cached.lock().unwrap();
-                            cached.reserve_exact(SUBSCRIPTION_FUNC_STREAM_CACHED_CAPACITY);
+                            cached.reserve_exact(self.cached_capacity_block_size);
                             cached.push_back(x.clone())
                         };
                         {
