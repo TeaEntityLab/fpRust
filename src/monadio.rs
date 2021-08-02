@@ -62,12 +62,14 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
     pub async fn to_future(&self) -> Result<Arc<Y>, Box<dyn Error>> {
         // let mio = self.map(|y| y);
         let mio = self.clone();
-        let result = shared_thread_pool()
-            .inner
-            .lock()
-            .unwrap()
-            .spawn_with_handle(async move { mio.eval() })?
-            .await;
+        let future = {
+            shared_thread_pool()
+                .inner
+                .lock()
+                .unwrap()
+                .spawn_with_handle(async move { mio.eval() })?
+        };
+        let result = future.await;
         Ok(result)
     }
 }

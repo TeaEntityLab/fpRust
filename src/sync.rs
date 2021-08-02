@@ -5,10 +5,18 @@ of general async handling features.
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    mpsc, Arc, Condvar, Mutex,
+    mpsc,
+    mpsc::RecvTimeoutError,
+    Arc, Condvar, Mutex,
 };
 use std::time::Duration;
 
+#[cfg(feature = "for_futures")]
+use super::common::shared_thread_pool;
+#[cfg(feature = "for_futures")]
+use crate::futures::task::SpawnExt;
+// #[cfg(feature = "for_futures")]
+use std::error::Error;
 #[cfg(feature = "for_futures")]
 use std::future::Future;
 #[cfg(feature = "for_futures")]
@@ -412,18 +420,16 @@ where
     }
 
     fn poll(&mut self) -> Option<T> {
-        if !self.is_alive() {
-            return None::<T>;
+        let result = self.poll_result();
+
+        if self.panic && result.is_err() {
+            std::panic::panic_any(result.err());
+            // return None;
         }
 
-        {
-            let result = self.blocking_recever.lock().unwrap().try_recv();
-
-            if self.panic && result.is_err() {
-                std::panic::panic_any(result.err());
-            }
-
-            result.ok()
+        match result {
+            Ok(v) => Some(v),
+            Err(_) => None,
         }
     }
 
@@ -434,8 +440,42 @@ where
     }
 
     fn take(&mut self) -> Option<T> {
+        let result = self.take_result();
+
+        if self.panic && result.is_err() {
+            std::panic::panic_any(result.err());
+            // return None;
+        }
+
+        match result {
+            Ok(v) => Some(v),
+            Err(_) => None,
+        }
+    }
+}
+
+impl<T> BlockingQueue<T>
+where
+    T: Send + 'static,
+{
+    pub fn poll_result(&mut self) -> Result<T, Box<dyn Error + Send>> {
         if !self.is_alive() {
-            return None::<T>;
+            return Err(Box::new(RecvTimeoutError::Disconnected));
+        }
+
+        {
+            let result = self.blocking_recever.lock().unwrap().try_recv();
+
+            match result {
+                Ok(v) => Ok(v),
+                Err(e) => Err(Box::new(e)),
+            }
+        }
+    }
+
+    pub fn take_result(&mut self) -> Result<T, Box<dyn Error + Send>> {
+        if !self.is_alive() {
+            return Err(Box::new(RecvTimeoutError::Disconnected));
         }
 
         {
@@ -443,22 +483,56 @@ where
                 Some(duration) => {
                     let result = self.blocking_recever.lock().unwrap().recv_timeout(duration);
 
-                    if self.panic && result.is_err() {
-                        std::panic::panic_any(result.err());
+                    match result {
+                        Ok(v) => Ok(v),
+                        Err(e) => Err(Box::new(e)),
                     }
-
-                    result.ok()
                 }
                 None => {
                     let result = self.blocking_recever.lock().unwrap().recv();
 
-                    if self.panic && result.is_err() {
-                        std::panic::panic_any(result.err());
+                    match result {
+                        Ok(v) => Ok(v),
+                        Err(e) => Err(Box::new(e)),
                     }
-
-                    result.ok()
                 }
             }
+        }
+    }
+}
+#[cfg(feature = "for_futures")]
+impl<T> BlockingQueue<T>
+where
+    T: Send + 'static + Clone,
+{
+    pub async fn poll_result_as_future(&mut self) -> Result<T, Box<dyn Error + Send>> {
+        let mut queue = self.clone();
+
+        let spawn_future_result = {
+            shared_thread_pool()
+                .inner
+                .lock()
+                .unwrap()
+                .spawn_with_handle(async move { queue.poll_result() })
+        };
+        match spawn_future_result {
+            Ok(future) => future.await,
+            Err(e) => Err(Box::new(e)),
+        }
+    }
+    pub async fn take_result_as_future(&mut self) -> Result<T, Box<dyn Error + Send>> {
+        let mut queue = self.clone();
+
+        let spawn_future_result = {
+            shared_thread_pool()
+                .inner
+                .lock()
+                .unwrap()
+                .spawn_with_handle(async move { queue.take_result() })
+        };
+        match spawn_future_result {
+            Ok(future) => future.await,
+            Err(e) => Err(Box::new(e)),
         }
     }
 }
