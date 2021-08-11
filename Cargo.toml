@@ -20,13 +20,24 @@ name = "fp_rust"
 path = "src/lib.rs"
 
 [features]
-default = []
+default = [ "pure" ]
 for_futures = [ "futures", "futures-test" ]
 # for_futures = [ "futures", "tokio" ]
-pure = [ ]
+pure = [
+  "fp",
+  "maybe",
+  "monadio",
+  "cor",
+  "actor",
+]
+fp = [ ]
+maybe = [ ]
+monadio = [ ]
+cor = [ ]
+actor = [ ]
 
 # For test
-test_runtime = [ "for_futures" ]
+test_runtime = [ "pure", "for_futures" ]
 
 [dependencies]
 # tokio = { version = "^1.9.0", features = ["full"], optional = true }

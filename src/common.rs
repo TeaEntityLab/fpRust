@@ -231,6 +231,14 @@ pub trait UniqueId<T> {
     fn get_id(&self) -> T;
 }
 
+pub fn generate_id() -> String {
+    let since_the_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+
+    format!("{:?}{:?}", thread::current().id(), since_the_epoch)
+}
+
 /**
 `SubscriptionFunc` struct implements the interface of `Subscription`,
 for general purposes crossing over many modules of fpRust.
@@ -261,11 +269,7 @@ pub struct SubscriptionFunc<T> {
 
 impl<T> SubscriptionFunc<T> {
     fn generate_id() -> String {
-        let since_the_epoch = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards");
-
-        format!("{:?}{:?}", thread::current().id(), since_the_epoch)
+        generate_id()
     }
 
     pub fn new(func: impl FnMut(Arc<T>) + Send + Sync + 'static) -> SubscriptionFunc<T> {
