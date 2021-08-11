@@ -35,8 +35,8 @@ pub trait Actor<Msg, ContextValue, HandleType, Functor>: UniqueId<String> {
     fn get_handle_parent(&self) -> Option<HandleType>;
 }
 
-pub trait Handle<Msg, ContextValue>: UniqueId<String> {
-    fn send(&self, message: Msg);
+pub trait Handle<Msg>: UniqueId<String> {
+    fn send(&mut self, message: Msg);
 }
 
 #[derive(Debug, Clone)]
@@ -45,15 +45,15 @@ where
     Msg: Send + 'static,
 {
     id: String,
-    queue: Arc<Mutex<BlockingQueue<Msg>>>,
+    queue: BlockingQueue<Msg>,
 }
 
-impl<Msg, ContextValue> Handle<Msg, ContextValue> for HandleAsync<Msg>
+impl<Msg> Handle<Msg> for HandleAsync<Msg>
 where
     Msg: Send + 'static,
 {
-    fn send(&self, message: Msg) {
-        self.queue.lock().unwrap().offer(message);
+    fn send(&mut self, message: Msg) {
+        self.queue.offer(message);
     }
 }
 impl<Msg> UniqueId<String> for HandleAsync<Msg>
@@ -66,16 +66,18 @@ where
 }
 
 // #[derive(Clone)]
-pub struct ActorAsync<Msg, ContextValue> {
+pub struct ActorAsync<Msg, ContextValue>
+where
+    Msg: Send + 'static,
+{
     started_alive: Arc<Mutex<(AtomicBool, AtomicBool)>>,
 
     id: String,
-    parent_handle: Option<Arc<dyn Handle<Msg, ContextValue> + Send + Sync + 'static>>,
-    children_handle_map:
-        Arc<Mutex<HashMap<String, Arc<dyn Handle<Msg, ContextValue> + Send + Sync + 'static>>>>,
+    parent_handle: Option<HandleAsync<Msg>>,
+    children_handle_map: Arc<Mutex<HashMap<String, HandleAsync<Msg>>>>,
 
     context: Arc<Mutex<Box<HashMap<String, ContextValue>>>>,
-    queue: Arc<Mutex<BlockingQueue<Msg>>>,
+    queue: BlockingQueue<Msg>,
     effect: Arc<
         Mutex<
             dyn FnMut(&mut ActorAsync<Msg, ContextValue>, Msg, &mut HashMap<String, ContextValue>)
@@ -87,7 +89,10 @@ pub struct ActorAsync<Msg, ContextValue> {
 
     join_handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
 }
-impl<Msg, ContextValue> Clone for ActorAsync<Msg, ContextValue> {
+impl<Msg, ContextValue> Clone for ActorAsync<Msg, ContextValue>
+where
+    Msg: Clone + Send + 'static,
+{
     fn clone(&self) -> Self {
         Self {
             started_alive: self.started_alive.clone(),
@@ -104,14 +109,17 @@ impl<Msg, ContextValue> Clone for ActorAsync<Msg, ContextValue> {
     }
 }
 
-impl<Msg, ContextValue> ActorAsync<Msg, ContextValue> {
+impl<Msg, ContextValue> ActorAsync<Msg, ContextValue>
+where
+    Msg: Send + 'static,
+{
     pub fn new(
         effect: impl FnMut(&mut ActorAsync<Msg, ContextValue>, Msg, &mut HashMap<String, ContextValue>)
             + Send
             + Sync
             + 'static,
     ) -> Self {
-        Self::new_with_options(effect, None, Arc::new(Mutex::new(BlockingQueue::new())))
+        Self::new_with_options(effect, None, BlockingQueue::new())
     }
 
     pub fn new_with_options(
@@ -119,8 +127,8 @@ impl<Msg, ContextValue> ActorAsync<Msg, ContextValue> {
             + Send
             + Sync
             + 'static,
-        parent_handle: Option<Arc<dyn Handle<Msg, ContextValue> + Send + Sync + 'static>>,
-        queue: Arc<Mutex<BlockingQueue<Msg>>>,
+        parent_handle: Option<HandleAsync<Msg>>,
+        queue: BlockingQueue<Msg>,
     ) -> Self {
         Self {
             queue,
@@ -197,7 +205,7 @@ where
         let mut this = self.clone();
         let started_alive_thread = self.started_alive.clone();
         self.join_handle = Arc::new(Mutex::new(Some(thread::spawn(move || {
-            let mut queue = { this.queue.lock().unwrap().clone() };
+            let mut queue = { this.queue.clone() };
 
             while {
                 let started_alive = started_alive_thread.lock().unwrap();
@@ -238,7 +246,7 @@ impl<Msg, ContextValue>
     Actor<
         Msg,
         ContextValue,
-        Arc<dyn Handle<Msg, ContextValue> + Send + Sync + 'static>,
+        HandleAsync<Msg>,
         Box<
             dyn FnMut(&mut ActorAsync<Msg, ContextValue>, Msg, &mut HashMap<String, ContextValue>)
                 + Send
@@ -264,7 +272,7 @@ where
                 + Sync
                 + 'static,
         >,
-    ) -> Arc<dyn Handle<Msg, ContextValue> + Send + Sync + 'static> {
+    ) -> HandleAsync<Msg> {
         let mut new_one = Self::new(func);
         new_one.parent_handle = Some(self.get_handle());
         {
@@ -276,24 +284,19 @@ where
         new_one.start();
         return new_one.get_handle();
     }
-    fn get_handle(&self) -> Arc<dyn Handle<Msg, ContextValue> + Send + Sync + 'static> {
-        return Arc::new(HandleAsync {
+    fn get_handle(&self) -> HandleAsync<Msg> {
+        HandleAsync {
             id: self.id.clone(),
             queue: self.queue.clone(),
-        });
+        }
     }
-    fn get_handle_child(
-        &self,
-        name: impl Into<String>,
-    ) -> Option<Arc<dyn Handle<Msg, ContextValue> + Send + Sync + 'static>> {
+    fn get_handle_child(&self, name: impl Into<String>) -> Option<HandleAsync<Msg>> {
         match self.children_handle_map.lock().unwrap().get(&name.into()) {
             Some(v) => Some(v.clone()),
             None => None,
         }
     }
-    fn get_handle_parent(
-        &self,
-    ) -> Option<Arc<dyn Handle<Msg, ContextValue> + Send + Sync + 'static>> {
+    fn get_handle_parent(&self) -> Option<HandleAsync<Msg>> {
         return self.parent_handle.clone();
     }
 }
@@ -347,7 +350,7 @@ fn test_actor_common() {
                     if let Some(Value::VecStr(ids)) = context.get("children_ids") {
                         for id in ids {
                             println!("Actor Shutdown id {:?}", id);
-                            if let Some(handle) = this.get_handle_child(id) {
+                            if let Some(mut handle) = this.get_handle_child(id) {
                                 handle.send(Value::Shutdown);
                             }
                         }
@@ -359,7 +362,7 @@ fn test_actor_common() {
                     if let Some(Value::VecStr(ids)) = context.get("children_ids") {
                         for id in ids {
                             println!("Actor Int id {:?}", id);
-                            if let Some(handle) = this.get_handle_child(id) {
+                            if let Some(mut handle) = this.get_handle_child(id) {
                                 handle.send(Value::Int(v));
                             }
                         }
@@ -370,7 +373,7 @@ fn test_actor_common() {
         },
     );
 
-    let root_handle = root.get_handle();
+    let mut root_handle = root.get_handle();
     root.start();
 
     root_handle.send(Value::Spawn);
