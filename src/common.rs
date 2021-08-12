@@ -14,7 +14,7 @@ use futures::executor::ThreadPool;
 #[cfg(feature = "for_futures")]
 use futures::stream::Stream;
 #[cfg(feature = "for_futures")]
-use std::collections::VecDeque;
+use std::collections::LinkedList;
 #[cfg(feature = "for_futures")]
 use std::mem;
 #[cfg(feature = "for_futures")]
@@ -29,9 +29,6 @@ use std::task::{Context, Poll, Waker};
 
 // pub trait FnMutReceiveThreadSafe<X>: FnMut(Arc<X>) + Send + Sync + 'static {}
 // pub trait FnMutReturnThreadSafe<X>: FnMut() -> X + Send + Sync + 'static {}
-
-#[cfg(feature = "for_futures")]
-static DEFAULT_STREAM_CACHED_CAPACITY_BLOCK_SIZE: usize = 10;
 
 #[cfg(feature = "for_futures")]
 #[derive(Clone)]
@@ -255,9 +252,7 @@ pub struct SubscriptionFunc<T> {
     pub receiver: RawReceiver<T>,
 
     #[cfg(feature = "for_futures")]
-    cached: Option<Arc<Mutex<VecDeque<Arc<T>>>>>,
-    #[cfg(feature = "for_futures")]
-    cached_capacity_block_size: usize,
+    cached: Option<Arc<Mutex<LinkedList<Arc<T>>>>>,
     #[cfg(feature = "for_futures")]
     alive: Option<Arc<Mutex<AtomicBool>>>,
     #[cfg(feature = "for_futures")]
@@ -276,8 +271,6 @@ impl<T> SubscriptionFunc<T> {
 
             #[cfg(feature = "for_futures")]
             cached: None,
-            #[cfg(feature = "for_futures")]
-            cached_capacity_block_size: DEFAULT_STREAM_CACHED_CAPACITY_BLOCK_SIZE,
             #[cfg(feature = "for_futures")]
             alive: None,
             #[cfg(feature = "for_futures")]
@@ -298,8 +291,6 @@ impl<T> Clone for SubscriptionFunc<T> {
             #[cfg(feature = "for_futures")]
             cached: self.cached.clone(),
             #[cfg(feature = "for_futures")]
-            cached_capacity_block_size: self.cached_capacity_block_size,
-            #[cfg(feature = "for_futures")]
             alive: self.alive.clone(),
             #[cfg(feature = "for_futures")]
             waker: self.waker.clone(),
@@ -309,13 +300,6 @@ impl<T> Clone for SubscriptionFunc<T> {
 
 #[cfg(feature = "for_futures")]
 impl<T> SubscriptionFunc<T> {
-    #[cfg(feature = "for_futures")]
-    pub fn set_stream_cached_capacity_block_size(&mut self, size: usize) {
-        if size > 0 {
-            self.cached_capacity_block_size = size;
-        }
-    }
-
     pub fn close_stream(&mut self) {
         if let Some(alive) = &self.alive {
             {
@@ -361,9 +345,7 @@ where
         }
 
         if self.cached.is_none() {
-            self.cached = Some(Arc::new(Mutex::new(VecDeque::with_capacity(
-                self.cached_capacity_block_size,
-            ))));
+            self.cached = Some(Arc::new(Mutex::new(LinkedList::new())));
         }
     }
 
@@ -398,7 +380,6 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
                     if alive {
                         {
                             let mut cached = cached.lock().unwrap();
-                            cached.reserve_exact(self.cached_capacity_block_size);
                             cached.push_back(x.clone())
                         };
                         {
