@@ -4,6 +4,7 @@ for general purposes crossing over many modules of `fpRust`.
 */
 
 use std::cmp::PartialEq;
+use std::collections::LinkedList;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -13,8 +14,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use futures::executor::ThreadPool;
 #[cfg(feature = "for_futures")]
 use futures::stream::Stream;
-#[cfg(feature = "for_futures")]
-use std::collections::LinkedList;
 #[cfg(feature = "for_futures")]
 use std::mem;
 #[cfg(feature = "for_futures")]
@@ -131,6 +130,37 @@ pub fn get_mut<'a, T>(v: &'a mut Vec<T>, index: usize) -> Option<&'a mut T> {
     }
 
     None
+}
+
+#[derive(Debug, Clone)]
+pub struct LinkedListAsync<T> {
+    inner: Arc<Mutex<LinkedList<T>>>,
+
+    _t: PhantomData<T>,
+}
+
+impl<T> LinkedListAsync<T> {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(LinkedList::new())),
+
+            _t: PhantomData,
+        }
+    }
+
+    pub fn push_back(&self, input: T) {
+        self.inner.lock().unwrap().push_back(input)
+    }
+
+    pub fn pop_front(&self) -> Option<T> {
+        self.inner.lock().unwrap().pop_front()
+    }
+}
+
+impl<T> Default for LinkedListAsync<T> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /**
@@ -252,7 +282,7 @@ pub struct SubscriptionFunc<T> {
     pub receiver: RawReceiver<T>,
 
     #[cfg(feature = "for_futures")]
-    cached: Option<Arc<Mutex<LinkedList<Arc<T>>>>>,
+    cached: Option<LinkedListAsync<Arc<T>>>,
     #[cfg(feature = "for_futures")]
     alive: Option<Arc<Mutex<AtomicBool>>>,
     #[cfg(feature = "for_futures")]
@@ -345,7 +375,7 @@ where
         }
 
         if self.cached.is_none() {
-            self.cached = Some(Arc::new(Mutex::new(LinkedList::new())));
+            self.cached = Some(LinkedListAsync::new());
         }
     }
 
@@ -378,10 +408,8 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
                 if let Some(cached) = &self.cached {
                     let alive = { alive.lock().unwrap().load(Ordering::SeqCst) };
                     if alive {
-                        {
-                            let mut cached = cached.lock().unwrap();
-                            cached.push_back(x.clone())
-                        };
+                        cached.push_back(x.clone());
+
                         {
                             if let Some(waker) = self.waker.lock().unwrap().take() {
                                 waker.wake()
@@ -432,7 +460,7 @@ where
         if let Some(cached) = &self.0.cached {
             let picked: Option<Arc<T>>;
             {
-                picked = cached.lock().unwrap().pop_front();
+                picked = cached.pop_front();
             }
             if picked.is_some() {
                 return Poll::Ready(picked);
@@ -448,7 +476,7 @@ where
                 if let Some(cached) = &self.0.cached {
                     let picked: Option<Arc<T>>;
                     {
-                        picked = cached.lock().unwrap().pop_front();
+                        picked = cached.pop_front();
                     }
 
                     // Check Pending(None) or Ready(Some(item))
