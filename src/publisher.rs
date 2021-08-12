@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "for_futures")]
-use super::common::SubscriptionFuncStream;
+use super::common::LinkedListAsync;
 
 use super::common::{Observable, RawFunc, Subscription, SubscriptionFunc, UniqueId};
 use super::handler::Handler;
@@ -116,16 +116,16 @@ impl<X: Send + Sync + 'static + Unpin> Publisher<X> {
     pub fn subscribe_as_stream(
         &mut self,
         s: Arc<Mutex<SubscriptionFunc<X>>>,
-    ) -> SubscriptionFuncStream<X> {
+    ) -> LinkedListAsync<Arc<X>> {
         self.subscribe(s).lock().unwrap().as_stream()
     }
     pub fn subscribe_fn_as_stream(
         &mut self,
         func: impl FnMut(Arc<X>) + Send + Sync + 'static,
-    ) -> SubscriptionFuncStream<X> {
+    ) -> LinkedListAsync<Arc<X>> {
         self.subscribe_fn(func).lock().unwrap().as_stream()
     }
-    pub fn as_stream(&mut self) -> SubscriptionFuncStream<X> {
+    pub fn as_stream(&mut self) -> LinkedListAsync<Arc<X>> {
         self.subscribe_fn_as_stream(|_| {})
     }
 }
