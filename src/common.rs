@@ -160,6 +160,8 @@ impl<T> LinkedListAsync<T> {
 
     pub fn push_back(&self, input: T) {
         self.inner.lock().unwrap().push_back(input);
+
+        #[cfg(feature = "for_futures")]
         self.wake();
     }
 
