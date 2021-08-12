@@ -159,7 +159,8 @@ impl<T> LinkedListAsync<T> {
     }
 
     pub fn push_back(&self, input: T) {
-        self.inner.lock().unwrap().push_back(input)
+        self.inner.lock().unwrap().push_back(input);
+        self.wake();
     }
 
     pub fn pop_front(&self) -> Option<T> {
@@ -193,12 +194,7 @@ impl<T> LinkedListAsync<T> {
             }
             self.alive = None;
 
-            {
-                if let Some(waker) = self.waker.clone().lock().unwrap().take() {
-                    self.waker = Arc::new(Mutex::new(None));
-                    waker.wake();
-                }
-            }
+            self.wake()
         }
     }
 }
@@ -486,10 +482,6 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
                     let alive = { alive.lock().unwrap().load(Ordering::SeqCst) };
                     if alive {
                         cached.push_back(x.clone());
-
-                        {
-                            cached.wake();
-                        }
                     }
                 }
             }
