@@ -2,7 +2,7 @@
 In this module there're implementations & tests of `Maybe`.
 */
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /**
 `Maybe` wraps built-in `Option<T>`,
@@ -21,21 +21,18 @@ and use the same interface as `fpEs` & `fpGo`(sister libraries :P)
 */
 #[derive(Clone)]
 pub struct Maybe<T> {
-    r: Arc<Mutex<Option<T>>>,
+    r: Arc<Option<T>>,
 }
 
 impl<T: Clone + 'static> Maybe<T> {
     pub fn option(&self) -> Option<T> {
-        let r = &*self.r.lock().unwrap();
-        r.clone()
+        self.r.as_ref().clone()
     }
     pub fn unwrap(&self) -> T {
-        let r = &*self.r.lock().unwrap();
-        r.clone().unwrap()
+        self.r.as_ref().clone().unwrap()
     }
     pub fn or(&self, val: T) -> T {
-        let r = &*self.r.lock().unwrap();
-        r.clone().unwrap_or(val)
+        self.r.as_ref().clone().unwrap_or(val)
     }
 }
 
@@ -47,9 +44,7 @@ impl<T: 'static> From<T> for Maybe<T> {
 
 impl<T: 'static> Maybe<T> {
     pub fn just(r: Option<T>) -> Maybe<T> {
-        Maybe {
-            r: Arc::new(Mutex::new(r)),
-        }
+        Maybe { r: Arc::new(r) }
     }
     pub fn of(r: Option<T>) -> Maybe<T> {
         Maybe::just(r)
@@ -59,15 +54,13 @@ impl<T: 'static> Maybe<T> {
     }
 
     pub fn present(&self) -> bool {
-        let r = &*self.r.lock().unwrap();
-        match r {
+        match self.r.as_ref() {
             Some(_x) => true,
             None => false,
         }
     }
     pub fn null(&self) -> bool {
-        let r = &*self.r.lock().unwrap();
-        match r {
+        match self.r.as_ref() {
             Some(_x) => false,
             None => true,
         }
@@ -76,8 +69,7 @@ impl<T: 'static> Maybe<T> {
     where
         F: FnOnce(&T),
     {
-        let r = &*self.r.lock().unwrap();
-        match r {
+        match self.r.as_ref() {
             Some(_x) => func(&_x),
             None => (),
         }
@@ -87,16 +79,14 @@ impl<T: 'static> Maybe<T> {
     where
         F: FnOnce(&Option<T>) -> Maybe<G>,
     {
-        let r = &*self.r.lock().unwrap();
-        func(&r)
+        func(self.r.as_ref())
     }
     pub fn map<F, G>(&self, func: F) -> Maybe<G>
     where
         F: FnOnce(&Option<T>) -> Option<G>,
         G: 'static,
     {
-        let r = &*self.r.lock().unwrap();
-        Maybe::just(func(&r))
+        Maybe::just(func(self.r.as_ref()))
     }
     pub fn bind<F, G>(&self, func: F) -> Maybe<G>
     where

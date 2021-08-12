@@ -5,12 +5,14 @@ for general purposes crossing over many modules of `fpRust`.
 
 use std::cmp::PartialEq;
 use std::marker::PhantomData;
-
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use std::sync::{Arc, Mutex};
-
+#[cfg(feature = "for_futures")]
+use futures::executor::ThreadPool;
+#[cfg(feature = "for_futures")]
+use futures::stream::Stream;
 #[cfg(feature = "for_futures")]
 use std::collections::VecDeque;
 #[cfg(feature = "for_futures")]
@@ -24,11 +26,6 @@ use std::sync::{
 };
 #[cfg(feature = "for_futures")]
 use std::task::{Context, Poll, Waker};
-
-#[cfg(feature = "for_futures")]
-use futures::executor::ThreadPool;
-#[cfg(feature = "for_futures")]
-use futures::stream::Stream;
 
 // pub trait FnMutReceiveThreadSafe<X>: FnMut(Arc<X>) + Send + Sync + 'static {}
 // pub trait FnMutReturnThreadSafe<X>: FnMut() -> X + Send + Sync + 'static {}

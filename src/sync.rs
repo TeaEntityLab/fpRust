@@ -3,6 +3,7 @@ In this module there're implementations & tests
 of general async handling features.
 */
 
+use std::error::Error;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc,
@@ -15,8 +16,6 @@ use std::time::Duration;
 use super::common::shared_thread_pool;
 #[cfg(feature = "for_futures")]
 use crate::futures::task::SpawnExt;
-// #[cfg(feature = "for_futures")]
-use std::error::Error;
 #[cfg(feature = "for_futures")]
 use std::future::Future;
 #[cfg(feature = "for_futures")]

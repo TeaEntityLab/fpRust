@@ -26,12 +26,12 @@ for_futures = [ "futures", "futures-test" ]
 pure = [
   "fp",
   "maybe",
-  "monadio",
+  "sync",
   "cor",
   "actor",
   "handler",
+  "monadio",
   "publisher",
-  "sync",
 ]
 fp = [ ]
 maybe = [ ]
