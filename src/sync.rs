@@ -86,6 +86,7 @@ pub trait Will<T>: Send + Sync + 'static {
     fn result(&mut self) -> Option<T>;
 }
 
+#[cfg(all(feature = "publisher", feature = "handler"))]
 #[derive(Clone)]
 pub struct WillAsync<T> {
     effect: Arc<Mutex<dyn FnMut() -> T + Send + Sync + 'static>>,
@@ -98,6 +99,7 @@ pub struct WillAsync<T> {
     waker: Arc<Mutex<Option<Waker>>>,
 }
 
+#[cfg(all(feature = "publisher", feature = "handler"))]
 impl<T> WillAsync<T> {
     pub fn new(effect: impl FnMut() -> T + Send + Sync + 'static) -> WillAsync<T> {
         Self::new_with_handler(effect, HandlerThread::new_with_mutex())
@@ -119,6 +121,7 @@ impl<T> WillAsync<T> {
     }
 }
 
+#[cfg(all(feature = "publisher", feature = "handler"))]
 impl<T> Will<T> for WillAsync<T>
 where
     T: Clone + Send + Sync + 'static,
@@ -206,7 +209,7 @@ where
     }
 }
 
-#[cfg(feature = "for_futures")]
+#[cfg(all(feature = "for_futures", feature = "publisher", feature = "handler"))]
 impl<T> Future for WillAsync<T>
 where
     T: Clone + Send + Sync + 'static,

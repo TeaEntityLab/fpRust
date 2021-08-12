@@ -3,11 +3,14 @@ extern crate futures;
 // #[cfg(feature = "for_futures")]
 // extern crate tokio;
 
-pub mod handler;
-pub mod publisher;
-pub mod sync;
-
 pub mod common;
+
+#[cfg(feature = "handler")]
+pub mod handler;
+#[cfg(feature = "publisher")]
+pub mod publisher;
+#[cfg(feature = "sync")]
+pub mod sync;
 
 #[cfg(feature = "actor")]
 pub mod actor;

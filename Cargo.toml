@@ -29,12 +29,18 @@ pure = [
   "monadio",
   "cor",
   "actor",
+  "handler",
+  "publisher",
+  "sync",
 ]
 fp = [ ]
 maybe = [ ]
-monadio = [ ]
+sync = [ ]
 cor = [ ]
-actor = [ ]
+actor = [ "sync" ]
+handler = [ "sync" ]
+monadio = [ "sync", "handler" ]
+publisher = [ "sync", "handler" ]
 
 # For test
 test_runtime = [ "pure", "for_futures" ]
