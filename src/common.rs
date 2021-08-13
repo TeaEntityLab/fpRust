@@ -215,7 +215,7 @@ where
     type Item = T;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut inner = self.inner.lock().unwrap();
+        // let mut inner = self.inner.lock().unwrap();
         let alive = self.alive.lock().unwrap();
         let mut waker = self.waker.lock().unwrap();
 
@@ -223,7 +223,7 @@ where
         // {
         //     picked = self.pop_front();
         // }
-        picked = inner.pop_front();
+        picked = self.pop_front();
         if picked.is_some() {
             return Poll::Ready(picked);
         }
@@ -235,14 +235,14 @@ where
             // picked = inner.pop_front();
 
             // Check Pending(None) or Ready(Some(item))
-            if picked.is_none() {
-                // Keep Pending
-                {
-                    waker.replace(cx.waker().clone());
-                };
-                return Poll::Pending;
-            }
-            return Poll::Ready(picked);
+            // if picked.is_none() {
+            // Keep Pending
+            {
+                waker.replace(cx.waker().clone());
+            };
+            return Poll::Pending;
+            // }
+            // return Poll::Ready(picked);
         }
         return Poll::Ready(None);
     }
