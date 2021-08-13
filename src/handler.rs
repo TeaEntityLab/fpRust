@@ -103,23 +103,20 @@ impl HandlerThread {
 
 impl Handler for HandlerThread {
     fn is_started(&mut self) -> bool {
-        let _started_alive = self.started_alive.clone();
-        let started_alive = _started_alive.lock().unwrap();
+        let started_alive = self.started_alive.lock().unwrap();
         let &(ref started, _) = &*started_alive;
         started.load(Ordering::SeqCst)
     }
 
     fn is_alive(&mut self) -> bool {
-        let _started_alive = self.started_alive.clone();
-        let started_alive = _started_alive.lock().unwrap();
+        let started_alive = self.started_alive.lock().unwrap();
         let &(_, ref alive) = &*started_alive;
         alive.load(Ordering::SeqCst)
     }
 
     fn start(&mut self) {
         {
-            let _started_alive = self.started_alive.clone();
-            let started_alive = _started_alive.lock().unwrap();
+            let started_alive = self.started_alive.lock().unwrap();
             let &(ref started, ref alive) = &*started_alive;
 
             if started.load(Ordering::SeqCst) {
@@ -133,9 +130,7 @@ impl Handler for HandlerThread {
         }
 
         let mut _inner = self.inner.clone();
-
         let mut this = self.clone();
-        let _started_alive = self.started_alive.clone();
         self.handle = Arc::new(Mutex::new(Some(thread::spawn(move || {
             Arc::make_mut(&mut _inner).start();
 
@@ -145,8 +140,7 @@ impl Handler for HandlerThread {
 
     fn stop(&mut self) {
         {
-            let _started_alive = self.started_alive.clone();
-            let started_alive = _started_alive.lock().unwrap();
+            let started_alive = self.started_alive.lock().unwrap();
             let &(ref started, ref alive) = &*started_alive;
 
             if !started.load(Ordering::SeqCst) {
@@ -203,7 +197,6 @@ impl Handler for HandlerThreadInner {
 
     fn start(&mut self) {
         self.alive.store(true, Ordering::SeqCst);
-        let alive = self.alive.clone();
 
         if self.is_started() {
             return;
@@ -212,7 +205,7 @@ impl Handler for HandlerThreadInner {
 
         let q = Arc::make_mut(&mut self.q);
 
-        while alive.load(Ordering::SeqCst) {
+        while self.alive.load(Ordering::SeqCst) {
             let v = q.take();
 
             match v {

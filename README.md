@@ -47,6 +47,11 @@ Thus I implemented fpRust. I hope you would like it :)
   * yield/yieldFrom
   * async/sync
 
+* Actor (*`fp_rust::actor::ActorAsync`*)
+  * Pure simple *`Actor`* model(`receive`/`send`/`spawn`)
+  * `Context` for keeping internal states
+  * Able to communicate with Parent/Children Actors
+
 * DoNotation (*`fp_rust::cor::Cor`*)
   * Haskell DoNotation-like, *macro*
 
@@ -350,4 +355,123 @@ println!("Piped FnOnce Result is {}", result);
 let result = (compose!(reduce!(|a, b| a * b), filter!(|x| *x < 6), map!(|x| x * 2)))(vec![1, 2, 3, 4]);
 assert_eq!(Some(8), result);
 println!("test_map_reduce_filter Result is {:?}", result);
+```
+
+## Actor
+
+Example:
+
+```rust
+use std::time::Duration;
+
+use fp_rust::common::LinkedListAsync;
+
+#[derive(Clone, Debug)]
+enum Value {
+    // Str(String),
+    Int(i32),
+    VecStr(Vec<String>),
+    Spawn,
+    Shutdown,
+}
+
+let result_i32 = LinkedListAsync::<i32>::new();
+let result_i32_thread = result_i32.clone();
+let result_string = LinkedListAsync::<Vec<String>>::new();
+let result_string_thread = result_string.clone();
+let mut root = ActorAsync::new(
+    move |this: &mut ActorAsync<_, _>, msg: Value, context: &mut HashMap<String, Value>| {
+        match msg {
+            Value::Spawn => {
+                println!("Actor Spawn");
+                let result_i32_thread = result_i32_thread.clone();
+                let spawned = this.spawn_with_handle(Box::new(
+                    move |this: &mut ActorAsync<_, _>, msg: Value, _| {
+                        match msg {
+                            Value::Int(v) => {
+                                println!("Actor Child Int");
+                                result_i32_thread.push_back(v * 10);
+                            }
+                            Value::Shutdown => {
+                                println!("Actor Child Shutdown");
+                                this.stop();
+                            }
+                            _ => {}
+                        };
+                    },
+                ));
+                let list = context.get("children_ids").cloned();
+                let mut list = match list {
+                    Some(Value::VecStr(list)) => list,
+                    _ => Vec::new(),
+                };
+                list.push(spawned.get_id());
+                context.insert("children_ids".into(), Value::VecStr(list));
+            }
+            Value::Shutdown => {
+                println!("Actor Shutdown");
+                if let Some(Value::VecStr(ids)) = context.get("children_ids") {
+                    result_string_thread.push_back(ids.clone());
+                }
+
+                for (id, handle) in this.children_handle_map.lock().unwrap().iter_mut() {
+                    println!("Actor Shutdown id {:?}", id);
+                    handle.send(Value::Shutdown);
+                }
+                this.stop();
+            }
+            Value::Int(v) => {
+                println!("Actor Int");
+                if let Some(Value::VecStr(ids)) = context.get("children_ids") {
+                    for id in ids {
+                        println!("Actor Int id {:?}", id);
+                        if let Some(mut handle) = this.get_handle_child(id) {
+                            handle.send(Value::Int(v));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    },
+);
+
+let mut root_handle = root.get_handle();
+root.start();
+
+// One child
+root_handle.send(Value::Spawn);
+root_handle.send(Value::Int(10));
+// Two children
+root_handle.send(Value::Spawn);
+root_handle.send(Value::Int(20));
+// Three children
+root_handle.send(Value::Spawn);
+root_handle.send(Value::Int(30));
+
+// Send Shutdown
+root_handle.send(Value::Shutdown);
+
+thread::sleep(Duration::from_millis(10));
+// 3 children Actors
+assert_eq!(3, result_string.pop_front().unwrap().len());
+
+let mut v = Vec::<Option<i32>>::new();
+for _ in 1..7 {
+    let i = result_i32.pop_front();
+    println!("Actor {:?}", i);
+    v.push(i);
+}
+v.sort();
+assert_eq!(
+    [
+        Some(100),
+        Some(200),
+        Some(200),
+        Some(300),
+        Some(300),
+        Some(300)
+    ],
+    v.as_slice()
+)
 ```

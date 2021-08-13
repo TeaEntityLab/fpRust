@@ -143,23 +143,20 @@ where
     }
 
     pub fn is_started(&mut self) -> bool {
-        let _started_alive = self.started_alive.clone();
-        let started_alive = _started_alive.lock().unwrap();
+        let started_alive = self.started_alive.lock().unwrap();
         let &(ref started, _) = &*started_alive;
         started.load(Ordering::SeqCst)
     }
 
     pub fn is_alive(&mut self) -> bool {
-        let _started_alive = self.started_alive.clone();
-        let started_alive = _started_alive.lock().unwrap();
+        let started_alive = self.started_alive.lock().unwrap();
         let &(_, ref alive) = &*started_alive;
         alive.load(Ordering::SeqCst)
     }
 
     pub fn stop(&mut self) {
         {
-            let _started_alive = self.started_alive.clone();
-            let started_alive = _started_alive.lock().unwrap();
+            let started_alive = self.started_alive.lock().unwrap();
             let &(ref started, ref alive) = &*started_alive;
 
             if !started.load(Ordering::SeqCst) {
@@ -188,8 +185,7 @@ where
 {
     pub fn start(&mut self) {
         {
-            let _started_alive = self.started_alive.clone();
-            let started_alive = _started_alive.lock().unwrap();
+            let started_alive = self.started_alive.lock().unwrap();
             let &(ref started, ref alive) = &*started_alive;
 
             if started.load(Ordering::SeqCst) {
@@ -203,21 +199,21 @@ where
         }
 
         let mut this = self.clone();
+        let this_for_context = self.clone();
         let started_alive_thread = self.started_alive.clone();
         self.join_handle = Arc::new(Mutex::new(Some(thread::spawn(move || {
-            let mut queue = { this.queue.clone() };
-
             while {
                 let started_alive = started_alive_thread.lock().unwrap();
                 let &(_, ref alive) = &*started_alive;
 
                 alive.load(Ordering::SeqCst)
             } {
-                let v = queue.take();
+                let v = this.queue.take();
 
                 match v {
                     Some(m) => {
-                        this.receive(m, this.context.clone().lock().unwrap().as_mut());
+                        let mut context = this_for_context.context.lock().unwrap();
+                        this.receive(m, context.as_mut());
                     }
                     None => {
                         let started_alive = started_alive_thread.lock().unwrap();
@@ -303,7 +299,9 @@ where
 
 #[test]
 fn test_actor_common() {
-    // assert_eq!(false, Maybe::just(None::<bool>).or(false));
+    use std::time::Duration;
+
+    use super::common::LinkedListAsync;
 
     #[derive(Clone, Debug)]
     enum Value {
@@ -314,20 +312,22 @@ fn test_actor_common() {
         Shutdown,
     }
 
-    let mut queue = BlockingQueue::<i32>::new();
-    let queue_thread = queue.clone();
+    let result_i32 = LinkedListAsync::<i32>::new();
+    let result_i32_thread = result_i32.clone();
+    let result_string = LinkedListAsync::<Vec<String>>::new();
+    let result_string_thread = result_string.clone();
     let mut root = ActorAsync::new(
         move |this: &mut ActorAsync<_, _>, msg: Value, context: &mut HashMap<String, Value>| {
             match msg {
                 Value::Spawn => {
                     println!("Actor Spawn");
-                    let mut queue_thread = queue_thread.clone();
+                    let result_i32_thread = result_i32_thread.clone();
                     let spawned = this.spawn_with_handle(Box::new(
                         move |this: &mut ActorAsync<_, _>, msg: Value, _| {
                             match msg {
                                 Value::Int(v) => {
                                     println!("Actor Child Int");
-                                    queue_thread.put(v * 10);
+                                    result_i32_thread.push_back(v * 10);
                                 }
                                 Value::Shutdown => {
                                     println!("Actor Child Shutdown");
@@ -348,12 +348,12 @@ fn test_actor_common() {
                 Value::Shutdown => {
                     println!("Actor Shutdown");
                     if let Some(Value::VecStr(ids)) = context.get("children_ids") {
-                        for id in ids {
-                            println!("Actor Shutdown id {:?}", id);
-                            if let Some(mut handle) = this.get_handle_child(id) {
-                                handle.send(Value::Shutdown);
-                            }
-                        }
+                        result_string_thread.push_back(ids.clone());
+                    }
+
+                    for (id, handle) in this.children_handle_map.lock().unwrap().iter_mut() {
+                        println!("Actor Shutdown id {:?}", id);
+                        handle.send(Value::Shutdown);
                     }
                     this.stop();
                 }
@@ -376,22 +376,39 @@ fn test_actor_common() {
     let mut root_handle = root.get_handle();
     root.start();
 
+    // One child
     root_handle.send(Value::Spawn);
     root_handle.send(Value::Int(10));
+    // Two children
     root_handle.send(Value::Spawn);
     root_handle.send(Value::Int(20));
+    // Three children
     root_handle.send(Value::Spawn);
     root_handle.send(Value::Int(30));
 
+    // Send Shutdown
     root_handle.send(Value::Shutdown);
 
-    let mut v = Vec::<i32>::new();
+    thread::sleep(Duration::from_millis(10));
+    // 3 children Actors
+    assert_eq!(3, result_string.pop_front().unwrap().len());
+
+    let mut v = Vec::<Option<i32>>::new();
     for _ in 1..7 {
-        let i = queue.take().unwrap();
+        let i = result_i32.pop_front();
         println!("Actor {:?}", i);
         v.push(i);
     }
     v.sort();
-
-    assert_eq!([100, 200, 200, 300, 300, 300], v.as_slice())
+    assert_eq!(
+        [
+            Some(100),
+            Some(200),
+            Some(200),
+            Some(300),
+            Some(300),
+            Some(300)
+        ],
+        v.as_slice()
+    )
 }

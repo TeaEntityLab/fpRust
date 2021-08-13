@@ -23,8 +23,7 @@ macro_rules! do_m {
         let mut _do_m = cor_newmutex!($this, (), ());
 
         {
-            let _do_m2 = _do_m.clone();
-            let mut do_m = _do_m2.lock().unwrap();
+            let mut do_m = _do_m.lock().unwrap();
             do_m.set_async(false);
         }
 
@@ -74,19 +73,17 @@ macro_rules! do_m_pattern {
         let $p: Arc<Mutex<Option<$ty>>> = Arc::new(Mutex::new(None::<$ty>));
         let _p = $p.clone();
 
-        let _cor = $cor.clone();
         let mut _do_m = cor_newmutex!(
             move |this| {
                 let mut p = _p.lock().unwrap();
-                *p = cor_yield_from!(this, _cor, $val);
+                *p = cor_yield_from!(this, $cor, $val);
             },
             (),
             ()
         );
 
         {
-            let _do_m2 = _do_m.clone();
-            let mut do_m = _do_m2.lock().unwrap();
+            let mut do_m = _do_m.lock().unwrap();
             do_m.set_async(false);
         }
 
@@ -157,7 +154,7 @@ such as `Python`, `Lua`, `ECMASript`...etc.
 #[macro_export]
 macro_rules! cor_yield {
     ($this:expr, $given_to_outside:expr) => {
-        Cor::yield_ref($this.clone(), $given_to_outside)
+        Cor::yield_ref($this, $given_to_outside)
     };
 }
 
@@ -313,8 +310,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
     ) -> Option<RETURNTARGET> {
         // me MutexGuard lifetime block
         {
-            let _me = this.clone();
-            let me = _me.lock().unwrap();
+            let me = this.lock().unwrap();
             if !me.is_alive() {
                 return None;
             }
@@ -390,8 +386,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
         let _op_ch_receiver;
         // me MutexGuard lifetime block
         {
-            let _me = this.clone();
-            let me = _me.lock().unwrap();
+            let me = this.lock().unwrap();
             if !me.is_alive() {
                 return None;
             }
@@ -430,16 +425,10 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
         let is_async;
 
         {
-            let _started_alive;
+            let me = this.lock().unwrap();
+            is_async = me.is_async;
 
-            {
-                let _me = this.clone();
-                let me = _me.lock().unwrap();
-                is_async = me.is_async;
-                _started_alive = me.started_alive.clone();
-            }
-
-            let started_alive = _started_alive.lock().unwrap();
+            let started_alive = me.started_alive.lock().unwrap();
             let &(ref started, ref alive) = &*started_alive;
             if started.load(Ordering::SeqCst) {
                 return;
@@ -453,9 +442,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
                 {
                     let mut _effect;
                     {
-                        let _me = this.clone();
-                        let me = _me.lock().unwrap();
-                        _effect = me.effect.clone();
+                        _effect = this.lock().unwrap().effect.clone();
                     }
 
                     let effect = &mut *_effect.lock().unwrap();
@@ -463,9 +450,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
                 }
 
                 {
-                    let _me = this.clone();
-                    let mut me = _me.lock().unwrap();
-                    me.stop();
+                    this.lock().unwrap().stop();
                 }
             };
             if is_async {
