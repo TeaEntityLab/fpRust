@@ -338,7 +338,7 @@ pub trait Subscription<X>: Send + Sync + 'static + UniqueId<String> {
     * `func` - The given `FnMut`.
 
     */
-    fn on_next(&mut self, x: Arc<X>);
+    fn on_next(&self, x: Arc<X>);
 }
 
 /**
@@ -474,7 +474,7 @@ impl<T> PartialEq for SubscriptionFunc<T> {
 }
 
 impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
-    fn on_next(&mut self, x: Arc<T>) {
+    fn on_next(&self, x: Arc<T>) {
         self.receiver.invoke(x.clone());
 
         #[cfg(feature = "for_futures")]

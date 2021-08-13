@@ -157,13 +157,13 @@ impl<Y: 'static + Send + Sync> MonadIO<Y> {
                             let result = Arc::new(ob());
                             sub_handler.lock().unwrap().post(RawFunc::new(move || {
                                 let result = result.clone();
-                                let mut sub = do_sub.lock().unwrap();
+                                let sub = do_sub.lock().unwrap();
 
                                 sub.on_next(result);
                             }));
                         }
                         None => {
-                            let mut sub = _do_sub.lock().unwrap();
+                            let sub = _do_sub.lock().unwrap();
                             sub.on_next(Arc::new(ob()));
                         }
                     }
@@ -171,7 +171,7 @@ impl<Y: 'static + Send + Sync> MonadIO<Y> {
             }
             None => {
                 let effect = Arc::make_mut(&mut _do_ob);
-                let mut sub = _do_sub.lock().unwrap();
+                let sub = _do_sub.lock().unwrap();
 
                 sub.on_next(Arc::new(effect()));
             }
