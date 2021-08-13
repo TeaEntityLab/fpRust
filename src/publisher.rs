@@ -83,9 +83,7 @@ where
     ) -> Arc<SubscriptionFunc<X>> {
         let _func = Arc::new(Mutex::new(func));
         self.subscribe_fn(move |x: Arc<X>| {
-            let _func = _func.clone();
-            let func = &mut *_func.lock().unwrap();
-            (func)(x);
+            (_func.lock().unwrap())(x);
         })
     }
     pub fn unsubscribe(&mut self, s: Arc<SubscriptionFunc<X>>) {
@@ -136,7 +134,7 @@ impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<
             observer.as_ref().clone().close_stream();
         }
 
-        for (index, obs) in self.observers.clone().iter().enumerate() {
+        for (index, obs) in self.observers.iter().enumerate() {
             if obs.get_id() == id {
                 // println!("delete_observer({});", observer);
                 self.observers.remove(index);
@@ -145,12 +143,8 @@ impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<
         }
     }
     fn notify_observers(&mut self, val: Arc<X>) {
-        let _observers = self.observers.clone();
-        let observers = Arc::new(_observers);
+        let observers = self.observers.clone();
         let mut _do_sub = Arc::new(move || {
-            let mut _observers = observers.clone();
-            let observers = Arc::make_mut(&mut _observers);
-
             for (_, observer) in observers.iter().enumerate() {
                 {
                     observer.on_next(val.clone());
@@ -158,21 +152,16 @@ impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<
             }
         });
 
-        let sub_handler_thread = &mut self.sub_handler;
-        let mut do_sub_thread_ob = _do_sub.clone();
-
-        match sub_handler_thread {
+        match &mut self.sub_handler {
             Some(ref mut sub_handler) => {
-                let mut do_sub_thread_sub = _do_sub.clone();
-
                 sub_handler.lock().unwrap().post(RawFunc::new(move || {
-                    let sub = Arc::make_mut(&mut do_sub_thread_sub);
+                    let sub = Arc::make_mut(&mut _do_sub);
 
                     (sub)();
                 }));
             }
             None => {
-                let sub = Arc::make_mut(&mut do_sub_thread_ob);
+                let sub = Arc::make_mut(&mut _do_sub);
                 (sub)();
             }
         };
@@ -195,15 +184,15 @@ async fn test_publisher_stream() {
     let mut pub1 = Publisher::new_with_handlers(Some(_h.clone()));
     //*
     let s = pub1.subscribe_as_stream(Arc::new(SubscriptionFunc::new(move |x| {
-        println!("{:?}: {:?}", "SS", x);
+        println!("test_publisher_stream {:?}: {:?}", "SS", x);
     })));
     // */
     {
         let h = &mut _h.lock().unwrap();
 
-        println!("hh2");
+        println!("test_publisher_stream hh2");
         h.start();
-        println!("hh2 running");
+        println!("test_publisher_stream hh2 running");
     }
     pub1.publish(1);
     pub1.publish(2);
@@ -213,12 +202,12 @@ async fn test_publisher_stream() {
     {
         let mut result = s.clone();
         for n in 1..5 {
-            println!("{:?}: {:?}", n, "Before");
+            println!("test_publisher_stream {:?}: {:?}", n, "Before");
             let item = result.next().await;
             if let Some(result) = item.clone() {
                 (&mut got_list).push(result.clone());
             }
-            println!("{:?}: {:?}", n, item);
+            println!("test_publisher_stream {:?}: {:?}", n, item);
         }
         // got_list = s.collect::<Vec<_>>().await;
     }
@@ -251,6 +240,8 @@ async fn test_publisher_stream() {
             s2.close_stream();
         }));
     }
+
+    std::thread::sleep(std::time::Duration::from_millis(10));
 
     got_list = s.clone().collect::<Vec<_>>().await;
     assert_eq!(

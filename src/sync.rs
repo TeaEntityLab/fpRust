@@ -587,13 +587,13 @@ fn test_will_sync_new() {
     h.stop();
     assert_eq!(false, h.is_alive());
     assert_eq!(false, h.is_started());
-    h.start();
     h.add_callback(Arc::new(SubscriptionFunc::new(move |_v: Arc<i16>| {
         assert_eq!(1, *Arc::make_mut(&mut _v.clone()));
         latch2.countdown();
     })));
+    h.start();
     latch.clone().wait();
-    thread::sleep(time::Duration::from_millis(50));
+    thread::sleep(time::Duration::from_millis(10));
     assert_eq!(false, h.is_alive());
     assert_eq!(true, h.is_started());
     assert_eq!(1, h.result().unwrap());

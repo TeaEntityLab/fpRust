@@ -236,7 +236,7 @@ fn test_monadio_new() {
     let latch = CountDownLatch::new(1);
     let latch2 = latch.clone();
 
-    thread::sleep(time::Duration::from_millis(100));
+    thread::sleep(time::Duration::from_millis(10));
 
     let subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
         println!("monadio_async {:?}", x); // monadio_async ok
@@ -262,7 +262,7 @@ fn test_monadio_new() {
         handler_observe_on.post(RawFunc::new(move || {}));
         handler_observe_on.post(RawFunc::new(move || {}));
     }
-    thread::sleep(time::Duration::from_millis(100));
+    thread::sleep(time::Duration::from_millis(10));
 
     // Waiting for being unlcoked
     latch.clone().wait();

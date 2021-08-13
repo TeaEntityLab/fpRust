@@ -275,13 +275,13 @@ fn test_handler_new() {
     }));
     println!("Test");
 
-    thread::sleep(time::Duration::from_millis(50));
+    thread::sleep(time::Duration::from_millis(10));
 
     assert_eq!(true, h.is_alive());
     assert_eq!(true, h.is_started());
 
     h.stop();
-    thread::sleep(time::Duration::from_millis(50));
+    thread::sleep(time::Duration::from_millis(10));
 
     assert_eq!(false, h.is_alive());
     assert_eq!(true, h.is_started());

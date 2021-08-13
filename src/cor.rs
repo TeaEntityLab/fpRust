@@ -710,5 +710,5 @@ fn test_cor_new() {
     cor_start!(_cor1);
     cor_start!(_cor2);
 
-    thread::sleep(time::Duration::from_millis(100));
+    thread::sleep(time::Duration::from_millis(10));
 }
