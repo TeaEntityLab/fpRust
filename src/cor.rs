@@ -445,8 +445,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
                         _effect = this.lock().unwrap().effect.clone();
                     }
 
-                    let effect = &mut *_effect.lock().unwrap();
-                    (effect)(this.clone());
+                    (_effect.lock().unwrap())(this.clone());
                 }
 
                 {

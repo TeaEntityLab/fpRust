@@ -499,8 +499,7 @@ impl<T> RawReceiver<T> {
 
     */
     pub fn invoke(&self, x: Arc<T>) {
-        let func = &mut *self.func.lock().unwrap();
-        (func)(x);
+        (self.func.lock().unwrap())(x);
     }
 }
 
@@ -540,8 +539,8 @@ impl RawFunc {
     Invoke the `FnMut`.
     */
     pub fn invoke(&self) {
-        let func = &mut *self.func.lock().unwrap();
-        (func)();
+        // let func = &mut *self.func.lock().unwrap();
+        (self.func.lock().unwrap())();
     }
 }
 

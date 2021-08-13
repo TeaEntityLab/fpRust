@@ -107,14 +107,7 @@ impl<Y: 'static + Send + Sync> MonadIO<Y> {
         let mut _effect = self.effect.clone();
 
         MonadIO::new_with_handlers(
-            move || {
-                let _func = _func.clone();
-                let func = &mut *_func.lock().unwrap();
-
-                let effect = &mut *_effect.lock().unwrap();
-
-                (func)((effect)())
-            },
+            move || (_func.lock().unwrap())((_effect.lock().unwrap())()),
             self.ob_handler.clone(),
             self.sub_handler.clone(),
         )
@@ -125,10 +118,7 @@ impl<Y: 'static + Send + Sync> MonadIO<Y> {
     ) -> MonadIO<Z> {
         let mut _func = Arc::new(Mutex::new(func));
 
-        self.map(move |y: Y| {
-            let mut func = _func.lock().unwrap();
-            ((func)(y).effect.lock().unwrap())()
-        })
+        self.map(move |y: Y| ((_func.lock().unwrap())(y).effect.lock().unwrap())())
     }
     pub fn subscribe(&self, s: Arc<impl Subscription<Y>>) {
         let mut _effect = self.effect.clone();
@@ -210,8 +200,7 @@ fn test_monadio_new() {
     let monadio_simple = MonadIO::just(3);
     // let mut monadio_simple = MonadIO::just(3);
     {
-        let effect = &mut *monadio_simple.effect.lock().unwrap();
-        assert_eq!(3, (effect)());
+        assert_eq!(3, (monadio_simple.effect.lock().unwrap())());
     }
     let monadio_simple_map = monadio_simple.map(|x| x * 3);
 
