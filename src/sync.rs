@@ -67,7 +67,7 @@ pub trait Will<T>: Send + Sync + 'static {
     * `subscription` - The callback.
     ``
     */
-    fn add_callback(&mut self, subscription: Arc<Mutex<SubscriptionFunc<T>>>);
+    fn add_callback(&mut self, subscription: Arc<SubscriptionFunc<T>>);
 
     /**
     Remove a callback called when it has completed.
@@ -77,7 +77,7 @@ pub trait Will<T>: Send + Sync + 'static {
     * `subscription` - The callback.
     ``
     */
-    fn remove_callback(&mut self, subscription: Arc<Mutex<SubscriptionFunc<T>>>);
+    fn remove_callback(&mut self, subscription: Arc<SubscriptionFunc<T>>);
 
     /**
     Get the result.
@@ -195,11 +195,11 @@ where
         }
     }
 
-    fn add_callback(&mut self, subscription: Arc<Mutex<SubscriptionFunc<T>>>) {
+    fn add_callback(&mut self, subscription: Arc<SubscriptionFunc<T>>) {
         self.publisher.lock().unwrap().subscribe(subscription);
     }
 
-    fn remove_callback(&mut self, subscription: Arc<Mutex<SubscriptionFunc<T>>>) {
+    fn remove_callback(&mut self, subscription: Arc<SubscriptionFunc<T>>) {
         self.publisher.lock().unwrap().delete_observer(subscription);
     }
 
@@ -552,10 +552,10 @@ async fn test_sync_future() {
     let latch = CountDownLatch::new(4);
     let latch2 = latch.clone();
 
-    let _ = pub1.subscribe(Arc::new(Mutex::new(SubscriptionFunc::new(move |_| {
+    let _ = pub1.subscribe(Arc::new(SubscriptionFunc::new(move |_| {
         println!("{:?}", "test_sync_future");
         latch2.countdown();
-    }))));
+    })));
 
     {
         let h = &mut _h.lock().unwrap();
@@ -588,12 +588,10 @@ fn test_will_sync_new() {
     assert_eq!(false, h.is_alive());
     assert_eq!(false, h.is_started());
     h.start();
-    h.add_callback(Arc::new(Mutex::new(SubscriptionFunc::new(
-        move |_v: Arc<i16>| {
-            assert_eq!(1, *Arc::make_mut(&mut _v.clone()));
-            latch2.countdown();
-        },
-    ))));
+    h.add_callback(Arc::new(SubscriptionFunc::new(move |_v: Arc<i16>| {
+        assert_eq!(1, *Arc::make_mut(&mut _v.clone()));
+        latch2.countdown();
+    })));
     latch.clone().wait();
     thread::sleep(time::Duration::from_millis(50));
     assert_eq!(false, h.is_alive());

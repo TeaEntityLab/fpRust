@@ -137,7 +137,7 @@ pub struct LinkedListAsync<T> {
     inner: Arc<Mutex<LinkedList<T>>>,
 
     #[cfg(feature = "for_futures")]
-    alive: Option<Arc<Mutex<AtomicBool>>>,
+    alive: Arc<Mutex<AtomicBool>>,
     #[cfg(feature = "for_futures")]
     waker: Arc<Mutex<Option<Waker>>>,
 
@@ -150,7 +150,7 @@ impl<T> LinkedListAsync<T> {
             inner: Arc::new(Mutex::new(LinkedList::new())),
 
             #[cfg(feature = "for_futures")]
-            alive: None,
+            alive: Arc::new(Mutex::new(AtomicBool::new(true))),
             #[cfg(feature = "for_futures")]
             waker: Arc::new(Mutex::new(None)),
 
@@ -159,10 +159,23 @@ impl<T> LinkedListAsync<T> {
     }
 
     pub fn push_back(&self, input: T) {
-        self.inner.lock().unwrap().push_back(input);
-
         #[cfg(feature = "for_futures")]
-        self.wake();
+        {
+            {
+                let alive = { self.alive.lock().unwrap().load(Ordering::SeqCst) };
+                if alive {
+                    self.inner.lock().unwrap().push_back(input);
+                }
+            }
+
+            self.wake();
+            return;
+        }
+
+        #[cfg(not(feature = "for_futures"))]
+        {
+            self.inner.lock().unwrap().push_back(input);
+        }
     }
 
     pub fn pop_front(&self) -> Option<T> {
@@ -178,26 +191,14 @@ impl<T> LinkedListAsync<T> {
 
     #[cfg(feature = "for_futures")]
     fn open_stream(&mut self) {
-        match &self.alive {
-            Some(alive) => {
-                alive.lock().unwrap().store(true, Ordering::SeqCst);
-            }
-            None => {
-                self.alive = Some(Arc::new(Mutex::new(AtomicBool::new(true))));
-            }
-        }
+        self.alive.lock().unwrap().store(true, Ordering::SeqCst);
     }
 
     #[cfg(feature = "for_futures")]
     pub fn close_stream(&mut self) {
-        if let Some(alive) = &self.alive {
-            {
-                alive.lock().unwrap().store(false, Ordering::SeqCst);
-            }
-            self.alive = None;
+        self.alive.lock().unwrap().store(false, Ordering::SeqCst);
 
-            self.wake()
-        }
+        self.wake()
     }
 }
 
@@ -209,10 +210,6 @@ where
     type Item = T;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.alive.is_none() {
-            return Poll::Ready(None);
-        }
-
         let picked: Option<T>;
         {
             picked = self.inner.lock().unwrap().pop_front();
@@ -222,45 +219,34 @@ where
         }
 
         // Check alive
-        if let Some(alive) = &self.alive {
-            // Check alive
-            let alive = { alive.lock().unwrap().load(Ordering::SeqCst) };
-            if alive {
-                // Check cached
-                let picked: Option<T>;
-                {
-                    picked = self.inner.lock().unwrap().pop_front();
-                }
-
-                // Check Pending(None) or Ready(Some(item))
-                if picked.is_none() {
-                    // Keep Pending
-                    {
-                        self.waker.lock().unwrap().replace(cx.waker().clone());
-                    };
-                    return Poll::Pending;
-                }
-                return Poll::Ready(picked);
+        let alive = { self.alive.lock().unwrap().load(Ordering::SeqCst) };
+        if alive {
+            // Check cached
+            let picked: Option<T>;
+            {
+                picked = self.inner.lock().unwrap().pop_front();
             }
-            return Poll::Ready(None);
+
+            // Check Pending(None) or Ready(Some(item))
+            if picked.is_none() {
+                // Keep Pending
+                {
+                    self.waker.lock().unwrap().replace(cx.waker().clone());
+                };
+                return Poll::Pending;
+            }
+            return Poll::Ready(picked);
         }
         return Poll::Ready(None);
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.alive.is_some() {
-            if let Some(alive) = &self.alive {
-                // Check alive
-                let alive = { alive.lock().unwrap().load(Ordering::SeqCst) };
-                if alive {
-                    return (0, Some(0));
-                }
-                return (0, None);
-            }
-            return (0, None);
-        } else {
-            return (0, None);
+        // Check alive
+        let alive = { self.alive.lock().unwrap().load(Ordering::SeqCst) };
+        if alive {
+            return (0, Some(0));
         }
+        return (0, None);
     }
 }
 
@@ -293,7 +279,7 @@ pub trait Observable<X, T: Subscription<X>> {
     * `observer` - The given `Subscription`.
 
     */
-    fn add_observer(&mut self, observer: Arc<Mutex<T>>);
+    fn add_observer(&mut self, observer: Arc<T>);
 
     /**
     Remove the observer.
@@ -303,7 +289,7 @@ pub trait Observable<X, T: Subscription<X>> {
     * `observer` - The given `Subscription`.
 
     */
-    fn delete_observer(&mut self, observer: Arc<Mutex<T>>);
+    fn delete_observer(&mut self, observer: Arc<T>);
 
     /**
     Notify all `Subscription` subscribers with a given value `Arc<X>`.
@@ -389,7 +375,7 @@ pub struct SubscriptionFunc<T> {
     pub receiver: RawReceiver<T>,
 
     #[cfg(feature = "for_futures")]
-    cached: Option<LinkedListAsync<Arc<T>>>,
+    cached: LinkedListAsync<Arc<T>>,
 }
 
 impl<T> SubscriptionFunc<T> {
@@ -403,7 +389,7 @@ impl<T> SubscriptionFunc<T> {
             receiver: RawReceiver::new(func),
 
             #[cfg(feature = "for_futures")]
-            cached: None,
+            cached: LinkedListAsync::new(),
         }
     }
 }
@@ -426,18 +412,7 @@ impl<T> Clone for SubscriptionFunc<T> {
 #[cfg(feature = "for_futures")]
 impl<T> SubscriptionFunc<T> {
     pub fn close_stream(&mut self) {
-        // let old_cached = self.cached.clone();
-        if let Some(cached) = &mut self.cached {
-            cached.close_stream();
-            self.cached = None;
-        }
-        /*
-        if let Some(cached) = &old_cached {
-            {
-                cached.lock().unwrap().clear();
-            }
-        }
-        // */
+        self.cached.close_stream();
     }
 }
 
@@ -447,17 +422,13 @@ where
     T: Unpin,
 {
     fn open_stream(&mut self) {
-        if self.cached.is_none() {
-            let mut inner = LinkedListAsync::new();
-            inner.open_stream();
-            self.cached = Some(inner);
-        }
+        self.cached.open_stream();
     }
 
     pub fn as_stream(&mut self) -> LinkedListAsync<Arc<T>> {
         self.open_stream();
 
-        self.cached.clone().unwrap()
+        self.cached.clone()
     }
 }
 
@@ -479,29 +450,10 @@ impl<T: Send + Sync + 'static> Subscription<T> for SubscriptionFunc<T> {
 
         #[cfg(feature = "for_futures")]
         {
-            if let Some(cached) = &self.cached {
-                if let Some(alive) = &cached.alive {
-                    let alive = { alive.lock().unwrap().load(Ordering::SeqCst) };
-                    if alive {
-                        cached.push_back(x.clone());
-                    }
-                }
-            }
+            self.cached.push_back(x);
         }
     }
 }
-
-/*
-#[cfg(feature = "for_futures")]
-impl<T> LinkedListAsync<Arc<T>>
-where
-    T: 'static + Send + Unpin,
-{
-    pub fn open_stream(&mut self) {
-        self.0.open_stream();
-    }
-}
-*/
 
 /**
 `RawReceiver` struct implements an useful container of `FnMut`(`Arc<T>`)
