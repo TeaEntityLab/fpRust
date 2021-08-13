@@ -166,9 +166,10 @@ impl<T> LinkedListAsync<T> {
                 if alive {
                     self.inner.lock().unwrap().push_back(input);
                 }
+
+                self.wake();
             }
 
-            self.wake();
             return;
         }
 
@@ -183,9 +184,10 @@ impl<T> LinkedListAsync<T> {
     }
 
     #[cfg(feature = "for_futures")]
+    #[inline]
     fn wake(&self) {
         if let Some(waker) = self.waker.lock().unwrap().take() {
-            waker.wake()
+            waker.wake();
         }
     }
 
@@ -196,9 +198,12 @@ impl<T> LinkedListAsync<T> {
 
     #[cfg(feature = "for_futures")]
     pub fn close_stream(&mut self) {
-        self.alive.lock().unwrap().store(false, Ordering::SeqCst);
+        {
+            let alive = self.alive.lock().unwrap();
+            alive.store(false, Ordering::SeqCst);
 
-        self.wake()
+            self.wake()
+        }
     }
 }
 
@@ -210,28 +215,30 @@ where
     type Item = T;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut inner = self.inner.lock().unwrap();
+        let alive = self.alive.lock().unwrap();
+        let mut waker = self.waker.lock().unwrap();
+
         let picked: Option<T>;
-        {
-            picked = self.inner.lock().unwrap().pop_front();
-        }
+        // {
+        //     picked = self.pop_front();
+        // }
+        picked = inner.pop_front();
         if picked.is_some() {
             return Poll::Ready(picked);
         }
 
         // Check alive
-        let alive = { self.alive.lock().unwrap().load(Ordering::SeqCst) };
-        if alive {
+        if alive.load(Ordering::SeqCst) {
             // Check cached
-            let picked: Option<T>;
-            {
-                picked = self.inner.lock().unwrap().pop_front();
-            }
+            // let picked: Option<T>;
+            // picked = inner.pop_front();
 
             // Check Pending(None) or Ready(Some(item))
             if picked.is_none() {
                 // Keep Pending
                 {
-                    self.waker.lock().unwrap().replace(cx.waker().clone());
+                    waker.replace(cx.waker().clone());
                 };
                 return Poll::Pending;
             }

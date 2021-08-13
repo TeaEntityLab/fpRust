@@ -126,23 +126,20 @@ where
     T: Clone + Send + Sync + 'static,
 {
     fn is_started(&mut self) -> bool {
-        let _started_alive = self.started_alive.clone();
-        let started_alive = _started_alive.lock().unwrap();
+        let started_alive = self.started_alive.lock().unwrap();
         let &(ref started, _) = &*started_alive;
         started.load(Ordering::SeqCst)
     }
 
     fn is_alive(&mut self) -> bool {
-        let _started_alive = self.started_alive.clone();
-        let started_alive = _started_alive.lock().unwrap();
+        let started_alive = self.started_alive.lock().unwrap();
         let &(_, ref alive) = &*started_alive;
         alive.load(Ordering::SeqCst)
     }
 
     fn start(&mut self) {
         {
-            let _started_alive = self.started_alive.clone();
-            let started_alive = _started_alive.lock().unwrap();
+            let started_alive = self.started_alive.lock().unwrap();
             let &(ref started, ref alive) = &*started_alive;
 
             if started.load(Ordering::SeqCst) {
@@ -159,23 +156,23 @@ where
         let _effect = self.effect.clone();
         let _publisher = self.publisher.clone();
 
-        let _started_alive = self.started_alive.clone();
-
         let mut handler = self.handler.lock().unwrap();
         handler.start();
         handler.post(RawFunc::new(move || {
-            let effect = &mut *_effect.lock().unwrap();
-            let result = (effect)();
-            (*this.result.lock().unwrap()) = Some(result.clone());
-            _publisher.lock().unwrap().publish(result);
+            let result = { (_effect.lock().unwrap())() };
+            {
+                (*this.result.lock().unwrap()) = Some(result.clone());
+            }
+            {
+                _publisher.lock().unwrap().publish(result);
+            }
             this.stop();
         }));
     }
 
     fn stop(&mut self) {
         {
-            let _started_alive = self.started_alive.clone();
-            let started_alive = _started_alive.lock().unwrap();
+            let started_alive = self.started_alive.lock().unwrap();
             let &(ref started, ref alive) = &*started_alive;
 
             if !started.load(Ordering::SeqCst) {
@@ -219,11 +216,9 @@ where
         if self.is_started() && (!self.is_alive()) {
             Poll::Ready(self.result())
         } else {
-            if !self.is_started() {
-                self.start();
+            {
+                self.waker.lock().unwrap().replace(cx.waker().clone());
             }
-
-            self.waker.lock().unwrap().replace(cx.waker().clone());
             Poll::Pending
         }
     }
@@ -260,17 +255,19 @@ impl CountDownLatch {
     }
 
     pub fn countdown(&self) {
-        let &(ref lock, ref cvar) = &*self.pair.clone();
-        let mut started = lock.lock().unwrap();
-        if *started > 0 {
-            *started -= 1;
-        }
-        cvar.notify_one();
-
-        #[cfg(feature = "for_futures")]
         {
-            if let Some(waker) = self.waker.lock().unwrap().take() {
-                waker.wake()
+            let &(ref lock, ref cvar) = &*self.pair.clone();
+            let mut started = lock.lock().unwrap();
+            if *started > 0 {
+                *started -= 1;
+            }
+            cvar.notify_one();
+
+            #[cfg(feature = "for_futures")]
+            {
+                if let Some(waker) = self.waker.lock().unwrap().take() {
+                    waker.wake()
+                }
             }
         }
     }
@@ -306,9 +303,13 @@ impl Future for CountDownLatch {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let &(ref remaining, _) = &*self.pair.clone();
-        if *remaining.lock().unwrap() > 0 {
-            self.waker.lock().unwrap().replace(cx.waker().clone());
+        let pair = self.pair.clone();
+        let &(ref remaining, _) = &*pair;
+        let count = remaining.lock().unwrap();
+        if *count > 0 {
+            {
+                self.waker.lock().unwrap().replace(cx.waker().clone());
+            }
             Poll::Pending
         } else {
             Poll::Ready(())
@@ -466,7 +467,7 @@ where
         }
 
         {
-            let result = self.blocking_recever.lock().unwrap().try_recv();
+            let result = { self.blocking_recever.lock().unwrap().try_recv() };
 
             match result {
                 Ok(v) => Ok(v),
@@ -483,7 +484,7 @@ where
         {
             match self.timeout {
                 Some(duration) => {
-                    let result = self.blocking_recever.lock().unwrap().recv_timeout(duration);
+                    let result = { self.blocking_recever.lock().unwrap().recv_timeout(duration) };
 
                     match result {
                         Ok(v) => Ok(v),
@@ -491,7 +492,7 @@ where
                     }
                 }
                 None => {
-                    let result = self.blocking_recever.lock().unwrap().recv();
+                    let result = { self.blocking_recever.lock().unwrap().recv() };
 
                     match result {
                         Ok(v) => Ok(v),
@@ -542,7 +543,8 @@ where
 #[cfg(feature = "for_futures")]
 #[futures_test::test]
 async fn test_sync_future() {
-    let wa = WillAsync::new(move || 1);
+    let mut wa = WillAsync::new(move || 1);
+    wa.start();
 
     assert_eq!(Some(1), wa.await);
 
@@ -552,25 +554,33 @@ async fn test_sync_future() {
     let latch = CountDownLatch::new(4);
     let latch2 = latch.clone();
 
-    let _ = pub1.subscribe(Arc::new(SubscriptionFunc::new(move |_| {
-        println!("{:?}", "test_sync_future");
+    let _ = pub1.subscribe(Arc::new(SubscriptionFunc::new(move |y| {
+        println!("test_sync_future {:?}", y);
         latch2.countdown();
     })));
+
+    println!("test_sync_future before Publisher.start()");
 
     {
         let h = &mut _h.lock().unwrap();
 
-        println!("hh2");
+        println!("test_sync_future hh2");
         h.start();
-        println!("hh2 running");
+        println!("test_sync_future hh2 running");
     }
+    std::thread::sleep(Duration::from_millis(10));
 
     pub1.publish(1);
+    println!("test_sync_future pub1.publish");
     pub1.publish(2);
+    println!("test_sync_future pub1.publish");
     pub1.publish(3);
+    println!("test_sync_future pub1.publish");
     pub1.publish(4);
+    println!("test_sync_future pub1.publish");
 
     let _ = latch.await;
+    println!("test_sync_future done");
 }
 
 #[test]
