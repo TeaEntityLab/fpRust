@@ -241,7 +241,7 @@ async fn test_publisher_stream() {
         }));
     }
 
-    std::thread::sleep(std::time::Duration::from_millis(10));
+    std::thread::sleep(std::time::Duration::from_millis(1));
 
     got_list = s.clone().collect::<Vec<_>>().await;
     assert_eq!(

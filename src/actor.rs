@@ -27,7 +27,12 @@ It defines simple and practical hehaviors of `Actor` model.
 ``
 */
 pub trait Actor<Msg, ContextValue, HandleType, Functor>: UniqueId<String> {
-    fn receive(&mut self, message: Msg, context: &mut HashMap<String, ContextValue>);
+    fn receive(
+        &mut self,
+        this: &mut Self,
+        message: Msg,
+        context: &mut HashMap<String, ContextValue>,
+    );
     fn spawn_with_handle(&self, func: Functor) -> HandleType;
 
     fn get_handle(&self) -> HandleType;
@@ -199,6 +204,7 @@ where
         }
 
         let mut this = self.clone();
+        let mut this_for_receive = self.clone();
         let this_for_context = self.clone();
         let started_alive_thread = self.started_alive.clone();
         self.join_handle = Arc::new(Mutex::new(Some(thread::spawn(move || {
@@ -213,7 +219,7 @@ where
                 match v {
                     Some(m) => {
                         let mut context = this_for_context.context.lock().unwrap();
-                        this.receive(m, context.as_mut());
+                        this.receive(&mut this_for_receive, m, context.as_mut());
                     }
                     None => {
                         let started_alive = started_alive_thread.lock().unwrap();
@@ -254,10 +260,14 @@ where
     Msg: Clone + Send + 'static,
     ContextValue: Send + 'static,
 {
-    fn receive(&mut self, message: Msg, context: &mut HashMap<String, ContextValue>) {
+    fn receive(
+        &mut self,
+        this: &mut Self,
+        message: Msg,
+        context: &mut HashMap<String, ContextValue>,
+    ) {
         {
-            let effect = self.effect.clone();
-            effect.lock().unwrap()(self, message, context);
+            self.effect.lock().unwrap()(this, message, context);
         }
     }
     fn spawn_with_handle(
@@ -389,7 +399,7 @@ fn test_actor_common() {
     // Send Shutdown
     root_handle.send(Value::Shutdown);
 
-    thread::sleep(Duration::from_millis(10));
+    thread::sleep(Duration::from_millis(1));
     // 3 children Actors
     assert_eq!(3, result_string.pop_front().unwrap().len());
 

@@ -138,19 +138,16 @@ where
     }
 
     fn start(&mut self) {
-        {
-            let started_alive = self.started_alive.lock().unwrap();
-            let &(ref started, ref alive) = &*started_alive;
-
-            if started.load(Ordering::SeqCst) {
-                return;
-            }
-            started.store(true, Ordering::SeqCst);
-            if alive.load(Ordering::SeqCst) {
-                return;
-            }
-            alive.store(true, Ordering::SeqCst);
+        let started_alive = self.started_alive.lock().unwrap();
+        let &(ref started, ref alive) = &*started_alive;
+        if started.load(Ordering::SeqCst) {
+            return;
         }
+        started.store(true, Ordering::SeqCst);
+        if alive.load(Ordering::SeqCst) {
+            return;
+        }
+        alive.store(true, Ordering::SeqCst);
 
         let mut this = self.clone();
         let _effect = self.effect.clone();
@@ -171,18 +168,15 @@ where
     }
 
     fn stop(&mut self) {
-        {
-            let started_alive = self.started_alive.lock().unwrap();
-            let &(ref started, ref alive) = &*started_alive;
-
-            if !started.load(Ordering::SeqCst) {
-                return;
-            }
-            if !alive.load(Ordering::SeqCst) {
-                return;
-            }
-            alive.store(false, Ordering::SeqCst);
+        let started_alive = self.started_alive.lock().unwrap();
+        let &(ref started, ref alive) = &*started_alive;
+        if !started.load(Ordering::SeqCst) {
+            return;
         }
+        if !alive.load(Ordering::SeqCst) {
+            return;
+        }
+        alive.store(false, Ordering::SeqCst);
 
         #[cfg(feature = "for_futures")]
         {
@@ -212,9 +206,12 @@ where
 {
     type Output = Option<T>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.is_started() && (!self.is_alive()) {
-            Poll::Ready(self.result())
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let started_alive = self.started_alive.lock().unwrap();
+        let &(ref started, ref alive) = &*started_alive;
+
+        if started.load(Ordering::SeqCst) && (!alive.load(Ordering::SeqCst)) {
+            Poll::Ready(self.clone().result())
         } else {
             {
                 self.waker.lock().unwrap().replace(cx.waker().clone());
@@ -265,7 +262,8 @@ impl CountDownLatch {
 
             #[cfg(feature = "for_futures")]
             {
-                if let Some(waker) = self.waker.lock().unwrap().take() {
+                let mut waker = self.waker.lock().unwrap();
+                if let Some(waker) = waker.take() {
                     waker.wake()
                 }
             }
@@ -273,7 +271,7 @@ impl CountDownLatch {
     }
 
     pub fn wait(&self) {
-        let &(ref lock, ref cvar) = &*self.pair.clone();
+        let &(ref lock, ref cvar) = &*self.pair;
 
         /*
         let mut result = lock.lock();
@@ -303,8 +301,7 @@ impl Future for CountDownLatch {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let pair = self.pair.clone();
-        let &(ref remaining, _) = &*pair;
+        let &(ref remaining, _) = &*self.pair;
         let count = remaining.lock().unwrap();
         if *count > 0 {
             {
@@ -568,7 +565,7 @@ async fn test_sync_future() {
         h.start();
         println!("test_sync_future hh2 running");
     }
-    std::thread::sleep(Duration::from_millis(10));
+    std::thread::sleep(Duration::from_millis(1));
 
     pub1.publish(1);
     println!("test_sync_future pub1.publish");
@@ -603,7 +600,7 @@ fn test_will_sync_new() {
     })));
     h.start();
     latch.clone().wait();
-    thread::sleep(time::Duration::from_millis(10));
+    thread::sleep(time::Duration::from_millis(1));
     assert_eq!(false, h.is_alive());
     assert_eq!(true, h.is_started());
     assert_eq!(1, h.result().unwrap());

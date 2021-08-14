@@ -162,8 +162,8 @@ impl<T> LinkedListAsync<T> {
         #[cfg(feature = "for_futures")]
         {
             {
-                let alive = { self.alive.lock().unwrap().load(Ordering::SeqCst) };
-                if alive {
+                let alive = self.alive.lock().unwrap();
+                if alive.load(Ordering::SeqCst) {
                     self.inner.lock().unwrap().push_back(input);
                 }
 
@@ -186,7 +186,8 @@ impl<T> LinkedListAsync<T> {
     #[cfg(feature = "for_futures")]
     #[inline]
     fn wake(&self) {
-        if let Some(waker) = self.waker.lock().unwrap().take() {
+        let mut waker = self.waker.lock().unwrap();
+        if let Some(waker) = waker.take() {
             waker.wake();
         }
     }
@@ -249,8 +250,8 @@ where
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         // Check alive
-        let alive = { self.alive.lock().unwrap().load(Ordering::SeqCst) };
-        if alive {
+        let alive = self.alive.lock().unwrap();
+        if alive.load(Ordering::SeqCst) {
             return (0, Some(0));
         }
         return (0, None);

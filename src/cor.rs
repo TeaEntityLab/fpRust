@@ -395,8 +395,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
 
         let op;
         {
-            let op_ch = &*_op_ch_receiver.lock().unwrap();
-            op = op_ch.recv();
+            op = _op_ch_receiver.lock().unwrap().recv();
         }
 
         if let Ok(_x) = op {
@@ -481,8 +480,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
 
     */
     pub fn is_started(&self) -> bool {
-        let _started_alive = self.started_alive.clone();
-        let started_alive = _started_alive.lock().unwrap();
+        let started_alive = self.started_alive.lock().unwrap();
         let &(ref started, _) = &*started_alive;
         started.load(Ordering::SeqCst)
     }
@@ -493,8 +491,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
 
     */
     pub fn is_alive(&self) -> bool {
-        let _started_alive = self.started_alive.clone();
-        let started_alive = _started_alive.lock().unwrap();
+        let started_alive = self.started_alive.lock().unwrap();
         let &(_, ref alive) = &*started_alive;
         alive.load(Ordering::SeqCst)
     }
@@ -509,8 +506,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
     */
     pub fn stop(&mut self) {
         {
-            let _started_alive = self.started_alive.clone();
-            let started_alive = _started_alive.lock().unwrap();
+            let started_alive = self.started_alive.lock().unwrap();
             let &(ref started, ref alive) = &*started_alive;
 
             if !started.load(Ordering::SeqCst) {
@@ -532,19 +528,17 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
         result_ch_sender: Arc<Mutex<Sender<Option<RETURN>>>>,
         given_as_request: Option<RECEIVE>,
     ) {
-        let _op_ch_sender = self.op_ch_sender.clone();
-
         // do_close_safe
-        if !self.is_alive() {
+        // if !self.is_alive() {
+        let started_alive = self.started_alive.lock().unwrap();
+        let &(_, ref alive) = &*started_alive;
+        if !alive.load(Ordering::SeqCst) {
             return;
         }
 
         {
-            let __started_alive = self.started_alive.clone();
-            let _started_alive = __started_alive.lock().unwrap();
-
-            // do: (effect)();
-            let _result = _op_ch_sender.lock().unwrap().send(CorOp {
+            let op_ch_sender = self.op_ch_sender.lock().unwrap();
+            let _result = op_ch_sender.send(CorOp {
                 // cor: cor,
                 result_ch_sender,
                 val: given_as_request,
@@ -559,8 +553,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
         }
 
         {
-            let __started_alive = self.started_alive.clone();
-            let _started_alive = __started_alive.lock().unwrap();
+            let _started_alive = self.started_alive.lock().unwrap();
 
             (effect)();
         }
@@ -710,5 +703,5 @@ fn test_cor_new() {
     cor_start!(_cor1);
     cor_start!(_cor2);
 
-    thread::sleep(time::Duration::from_millis(10));
+    thread::sleep(time::Duration::from_millis(1));
 }

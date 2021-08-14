@@ -116,7 +116,7 @@ let monadio_async = MonadIO::new_with_handlers(
 let latch = CountDownLatch::new(1);
 let latch2 = latch.clone();
 
-thread::sleep(time::Duration::from_millis(100));
+thread::sleep(time::Duration::from_millis(1));
 
 let subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
     println!("monadio_async {:?}", x); // monadio_async ok
@@ -142,7 +142,7 @@ monadio_async.subscribe(Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
     handler_observe_on.post(RawFunc::new(move || {}));
     handler_observe_on.post(RawFunc::new(move || {}));
 }
-thread::sleep(time::Duration::from_millis(100));
+thread::sleep(time::Duration::from_millis(1));
 
 // Waiting for being unlcoked
 latch.clone().wait();
@@ -263,7 +263,7 @@ let _cor2 = cor_newmutex!(
 cor_start!(_cor1);
 cor_start!(_cor2);
 
-thread::sleep(time::Duration::from_millis(100));
+thread::sleep(time::Duration::from_millis(1));
 ```
 
 ## Do Notation (Haskell DoNotation-like)
@@ -452,7 +452,7 @@ root_handle.send(Value::Int(30));
 // Send Shutdown
 root_handle.send(Value::Shutdown);
 
-thread::sleep(Duration::from_millis(10));
+thread::sleep(Duration::from_millis(1));
 // 3 children Actors
 assert_eq!(3, result_string.pop_front().unwrap().len());
 
