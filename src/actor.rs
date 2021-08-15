@@ -399,7 +399,7 @@ fn test_actor_common() {
     // Send Shutdown
     root_handle.send(Value::Shutdown);
 
-    thread::sleep(Duration::from_millis(2));
+    thread::sleep(Duration::from_millis(10));
     // 3 children Actors
     assert_eq!(3, result_string.pop_front().unwrap().len());
 
@@ -463,7 +463,7 @@ fn test_actor_ask() {
     root_handle.send(Value::AskIntByLinkedListAsync((1, result_i32.clone())));
     root_handle.send(Value::AskIntByLinkedListAsync((2, result_i32.clone())));
     root_handle.send(Value::AskIntByLinkedListAsync((3, result_i32.clone())));
-    thread::sleep(Duration::from_millis(1));
+    thread::sleep(Duration::from_millis(5));
     let i = result_i32.pop_front();
     assert_eq!(Some(10), i);
     let i = result_i32.pop_front();
@@ -477,7 +477,7 @@ fn test_actor_ask() {
     root_handle.send(Value::AskIntByBlockingQueue((4, result_i32.clone())));
     root_handle.send(Value::AskIntByBlockingQueue((5, result_i32.clone())));
     root_handle.send(Value::AskIntByBlockingQueue((6, result_i32.clone())));
-    thread::sleep(Duration::from_millis(2));
+    thread::sleep(Duration::from_millis(5));
     let i = result_i32.take();
     assert_eq!(Some(40), i);
     let i = result_i32.take();
