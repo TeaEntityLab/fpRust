@@ -422,3 +422,71 @@ fn test_actor_common() {
         v.as_slice()
     )
 }
+
+#[test]
+fn test_actor_ask() {
+    use std::time::Duration;
+
+    use super::common::LinkedListAsync;
+
+    #[derive(Clone, Debug)]
+    enum Value {
+        AskIntByLinkedListAsync((i32, LinkedListAsync<i32>)),
+        AskIntByBlockingQueue((i32, BlockingQueue<i32>)),
+    }
+
+    let mut root = ActorAsync::new(
+        move |_: &mut ActorAsync<_, _>, msg: Value, _: &mut HashMap<String, Value>| match msg {
+            Value::AskIntByLinkedListAsync(v) => {
+                println!("Actor AskIntByLinkedListAsync");
+                v.1.push_back(v.0 * 10);
+            }
+            Value::AskIntByBlockingQueue(mut v) => {
+                println!("Actor AskIntByBlockingQueue");
+
+                // NOTE If negative, hanging for testing timeout
+                if v.0 < 0 {
+                    return;
+                }
+
+                // NOTE General Cases
+                v.1.offer(v.0 * 10);
+            } // _ => {}
+        },
+    );
+
+    let mut root_handle = root.get_handle();
+    root.start();
+
+    // LinkedListAsync<i32>
+    let result_i32 = LinkedListAsync::<i32>::new();
+    root_handle.send(Value::AskIntByLinkedListAsync((1, result_i32.clone())));
+    root_handle.send(Value::AskIntByLinkedListAsync((2, result_i32.clone())));
+    root_handle.send(Value::AskIntByLinkedListAsync((3, result_i32.clone())));
+    thread::sleep(Duration::from_millis(1));
+    let i = result_i32.pop_front();
+    assert_eq!(Some(10), i);
+    let i = result_i32.pop_front();
+    assert_eq!(Some(20), i);
+    let i = result_i32.pop_front();
+    assert_eq!(Some(30), i);
+
+    // BlockingQueue<i32>
+    let mut result_i32 = BlockingQueue::<i32>::new();
+    result_i32.timeout = Some(Duration::from_millis(1));
+    root_handle.send(Value::AskIntByBlockingQueue((4, result_i32.clone())));
+    root_handle.send(Value::AskIntByBlockingQueue((5, result_i32.clone())));
+    root_handle.send(Value::AskIntByBlockingQueue((6, result_i32.clone())));
+    thread::sleep(Duration::from_millis(1));
+    let i = result_i32.take();
+    assert_eq!(Some(40), i);
+    let i = result_i32.take();
+    assert_eq!(Some(50), i);
+    let i = result_i32.take();
+    assert_eq!(Some(60), i);
+
+    // Timeout case:
+    root_handle.send(Value::AskIntByBlockingQueue((-1, result_i32.clone())));
+    let i = result_i32.take();
+    assert_eq!(None, i);
+}
