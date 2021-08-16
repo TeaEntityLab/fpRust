@@ -2,7 +2,7 @@
 In this module there're implementations & tests of `Actor`.
 */
 
-use std::collections::HashMap;
+use std::collections::{self, HashMap};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -145,6 +145,13 @@ where
             join_handle: Arc::new(Mutex::new(None)),
             effect: Arc::new(Mutex::new(effect)),
         }
+    }
+
+    pub fn for_each_child(
+        &self,
+        mut func: impl FnMut(collections::hash_map::IterMut<String, HandleAsync<Msg>>),
+    ) {
+        func(self.children_handle_map.lock().unwrap().iter_mut());
     }
 
     pub fn is_started(&mut self) -> bool {
@@ -361,10 +368,12 @@ fn test_actor_common() {
                         result_string_thread.push_back(ids.clone());
                     }
 
-                    for (id, handle) in this.children_handle_map.lock().unwrap().iter_mut() {
-                        println!("Actor Shutdown id {:?}", id);
-                        handle.send(Value::Shutdown);
-                    }
+                    this.for_each_child(move |iter| {
+                        for (id, handle) in iter {
+                            println!("Actor Shutdown id {:?}", id);
+                            handle.send(Value::Shutdown);
+                        }
+                    });
                     this.stop();
                 }
                 Value::Int(v) => {

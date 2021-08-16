@@ -416,10 +416,12 @@ let mut root = ActorAsync::new(
                     result_string_thread.push_back(ids.clone());
                 }
 
-                for (id, handle) in this.children_handle_map.lock().unwrap().iter_mut() {
-                    println!("Actor Shutdown id {:?}", id);
-                    handle.send(Value::Shutdown);
-                }
+                this.for_each_child(move |iter| {
+                    for (id, handle) in iter {
+                        println!("Actor Shutdown id {:?}", id);
+                        handle.send(Value::Shutdown);
+                    }
+                });
                 this.stop();
             }
             Value::Int(v) => {
