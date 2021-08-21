@@ -2,7 +2,7 @@
 In this module there're implementations & tests of `Actor`.
 */
 
-use std::collections::{self, HashMap};
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -38,6 +38,8 @@ pub trait Actor<Msg, ContextValue, HandleType, Functor>: UniqueId<String> {
     fn get_handle(&self) -> HandleType;
     fn get_handle_child(&self, name: impl Into<String>) -> Option<HandleType>;
     fn get_handle_parent(&self) -> Option<HandleType>;
+
+    fn for_each_child(&self, func: impl FnMut(&String, &mut HandleType));
 }
 
 pub trait Handle<Msg>: UniqueId<String> {
@@ -145,13 +147,6 @@ where
             join_handle: Arc::new(Mutex::new(None)),
             effect: Arc::new(Mutex::new(effect)),
         }
-    }
-
-    pub fn for_each_child(
-        &self,
-        mut func: impl FnMut(collections::hash_map::IterMut<String, HandleAsync<Msg>>),
-    ) {
-        func(self.children_handle_map.lock().unwrap().iter_mut());
     }
 
     pub fn is_started(&mut self) -> bool {
@@ -312,6 +307,12 @@ where
     fn get_handle_parent(&self) -> Option<HandleAsync<Msg>> {
         return self.parent_handle.clone();
     }
+
+    fn for_each_child(&self, mut func: impl FnMut(&String, &mut HandleAsync<Msg>)) {
+        for (id, handle) in self.children_handle_map.lock().unwrap().iter_mut() {
+            func(id, handle);
+        }
+    }
 }
 
 #[test]
@@ -368,11 +369,9 @@ fn test_actor_common() {
                         result_string_thread.push_back(ids.clone());
                     }
 
-                    this.for_each_child(move |iter| {
-                        for (id, handle) in iter {
-                            println!("Actor Shutdown id {:?}", id);
-                            handle.send(Value::Shutdown);
-                        }
+                    this.for_each_child(move |id, handle| {
+                        println!("Actor Shutdown id {:?}", id);
+                        handle.send(Value::Shutdown);
                     });
                     this.stop();
                 }

@@ -416,11 +416,9 @@ let mut root = ActorAsync::new(
                     result_string_thread.push_back(ids.clone());
                 }
 
-                this.for_each_child(move |iter| {
-                    for (id, handle) in iter {
-                        println!("Actor Shutdown id {:?}", id);
-                        handle.send(Value::Shutdown);
-                    }
+                this.for_each_child(move |id, handle| {
+                    println!("Actor Shutdown id {:?}", id);
+                    handle.send(Value::Shutdown);
                 });
                 this.stop();
             }
