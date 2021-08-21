@@ -24,7 +24,10 @@ use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 
 use super::common::{Observable, RawFunc, SubscriptionFunc};
+
+#[cfg(feature = "handler")]
 use super::handler::{Handler, HandlerThread};
+#[cfg(feature = "publisher")]
 use super::publisher::Publisher;
 
 /**
