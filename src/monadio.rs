@@ -267,3 +267,106 @@ fn test_monadio_new() {
     // Waiting for being unlcoked
     latch.clone().wait();
 }
+
+#[test]
+fn test_monadio_of_returns_value() {
+    let mut f = of(7);
+    assert_eq!(7, f());
+    // of yields a fresh clone each call.
+    assert_eq!(7, f());
+}
+
+#[test]
+fn test_monadio_just_eval() {
+    // just + eval round-trips the value synchronously (no handlers).
+    assert_eq!(Arc::new(3), MonadIO::just(3).eval());
+    assert_eq!(Arc::new(String::from("x")), MonadIO::just(String::from("x")).eval());
+}
+
+#[test]
+fn test_monadio_from_trait() {
+    let m: MonadIO<i32> = MonadIO::from(42);
+    assert_eq!(Arc::new(42), m.eval());
+}
+
+#[test]
+fn test_monadio_new_with_effect() {
+    // new() takes a raw effect closure.
+    let m = MonadIO::new(|| 5 + 5);
+    assert_eq!(Arc::new(10), m.eval());
+}
+
+#[test]
+fn test_monadio_map() {
+    let m = MonadIO::just(3).map(|x| x * 2);
+    assert_eq!(Arc::new(6), m.eval());
+}
+
+#[test]
+fn test_monadio_map_changes_type() {
+    let m = MonadIO::just(8).map(|x| x.to_string());
+    assert_eq!(Arc::new(String::from("8")), m.eval());
+}
+
+#[test]
+fn test_monadio_map_chained() {
+    let m = MonadIO::just(2).map(|x| x + 1).map(|x| x * 10);
+    assert_eq!(Arc::new(30), m.eval());
+}
+
+#[test]
+fn test_monadio_fmap_flattens() {
+    // fmap's closure returns another MonadIO which is flattened.
+    let m = MonadIO::just(4).fmap(|x| MonadIO::new(move || x * 5));
+    assert_eq!(Arc::new(20), m.eval());
+}
+
+#[test]
+fn test_monadio_fmap_then_map() {
+    let m = MonadIO::just(1)
+        .fmap(|x| MonadIO::new(move || x * 4))
+        .map(|x| x * 3)
+        .map(|x| x * 3);
+    // 1 -> 4 -> 12 -> 36
+    assert_eq!(Arc::new(36), m.eval());
+}
+
+#[test]
+fn test_monadio_subscribe_fn_sync() {
+    use std::sync::atomic::{AtomicI32, Ordering};
+
+    // Without handlers, subscribe_fn runs synchronously on the current thread.
+    let captured = Arc::new(AtomicI32::new(0));
+    let captured_thread = captured.clone();
+    MonadIO::just(11).subscribe_fn(move |x| {
+        captured_thread.store(*x, Ordering::SeqCst);
+    });
+    assert_eq!(11, captured.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_monadio_subscribe_sync() {
+    use super::common::SubscriptionFunc;
+    use std::sync::atomic::{AtomicI32, Ordering};
+
+    let captured = Arc::new(AtomicI32::new(0));
+    let captured_thread = captured.clone();
+    let sub = Arc::new(SubscriptionFunc::new(move |x: Arc<i32>| {
+        captured_thread.store(*x, Ordering::SeqCst);
+    }));
+    MonadIO::just(5).map(|x| x * 4).subscribe(sub);
+    assert_eq!(20, captured.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_monadio_eval_runs_effect_each_time() {
+    use std::sync::atomic::{AtomicI32, Ordering};
+
+    // Each eval re-runs the underlying effect.
+    let counter = Arc::new(AtomicI32::new(0));
+    let counter_thread = counter.clone();
+    let m = MonadIO::new(move || counter_thread.fetch_add(1, Ordering::SeqCst) + 1);
+    assert_eq!(Arc::new(1), m.eval());
+    assert_eq!(Arc::new(2), m.eval());
+    assert_eq!(2, counter.load(Ordering::SeqCst));
+}

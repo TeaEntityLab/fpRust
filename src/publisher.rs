@@ -313,3 +313,171 @@ fn test_publisher_new() {
 
     latch.clone().wait();
 }
+
+#[test]
+fn test_publisher_subscribe_fn_sync() {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::Arc;
+
+    // Without a handler, publish notifies observers synchronously.
+    let captured = Arc::new(AtomicI32::new(0));
+    let captured_thread = captured.clone();
+    let mut p = Publisher::new();
+    p.subscribe_fn(move |x: Arc<i32>| {
+        captured_thread.store(*x, Ordering::SeqCst);
+    });
+    p.publish(9);
+    assert_eq!(9, captured.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_publisher_multiple_subscribers_all_notified() {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::Arc;
+
+    let total = Arc::new(AtomicI32::new(0));
+    let mut p = Publisher::new();
+    for _ in 0..3 {
+        let total_thread = total.clone();
+        p.subscribe_fn(move |x: Arc<i32>| {
+            total_thread.fetch_add(*x, Ordering::SeqCst);
+        });
+    }
+    p.publish(10);
+    // Three subscribers each add 10.
+    assert_eq!(30, total.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_publisher_publish_multiple_values() {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::Arc;
+
+    let sum = Arc::new(AtomicI32::new(0));
+    let sum_thread = sum.clone();
+    let mut p = Publisher::new();
+    p.subscribe_fn(move |x: Arc<i32>| {
+        sum_thread.fetch_add(*x, Ordering::SeqCst);
+    });
+    p.publish(1);
+    p.publish(2);
+    p.publish(3);
+    assert_eq!(6, sum.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_publisher_unsubscribe_stops_delivery() {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::Arc;
+
+    use super::common::SubscriptionFunc;
+
+    let count = Arc::new(AtomicI32::new(0));
+    let count_thread = count.clone();
+    let mut p = Publisher::new();
+    let s = Arc::new(SubscriptionFunc::new(move |_x: Arc<i32>| {
+        count_thread.fetch_add(1, Ordering::SeqCst);
+    }));
+    p.subscribe(s.clone());
+
+    p.publish(1); // delivered
+    assert_eq!(1, count.load(Ordering::SeqCst));
+
+    p.unsubscribe(s);
+    p.publish(2); // not delivered
+    assert_eq!(1, count.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_publisher_subscribe_returns_same_handle() {
+    use std::sync::Arc;
+
+    use super::common::{SubscriptionFunc, UniqueId};
+
+    let mut p = Publisher::new();
+    let s = Arc::new(SubscriptionFunc::new(|_x: Arc<i32>| {}));
+    let returned = p.subscribe(s.clone());
+    // subscribe hands back the same subscription (same id).
+    assert_eq!(s.get_id(), returned.get_id());
+}
+
+#[test]
+fn test_publisher_map_runs_on_publish() {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::Arc;
+
+    // map registers a transforming side-effect that runs on each publish.
+    let seen = Arc::new(AtomicI32::new(0));
+    let seen_thread = seen.clone();
+    let mut p = Publisher::new();
+    p.map(move |x: Arc<i32>| {
+        let doubled = *x * 2;
+        seen_thread.store(doubled, Ordering::SeqCst);
+        doubled
+    });
+    p.publish(21);
+    assert_eq!(42, seen.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_publisher_as_blocking_queue() {
+    use std::sync::Arc;
+
+    let mut p = Publisher::new();
+    let (_sub, mut queue) = p.as_blocking_queue();
+    p.publish(5);
+    p.publish(6);
+    // Published values arrive (as Arc<X>) in FIFO order.
+    assert_eq!(Some(Arc::new(5)), queue.poll());
+    assert_eq!(Some(Arc::new(6)), queue.poll());
+    assert_eq!(None, queue.poll());
+}
+
+#[test]
+fn test_publisher_subscribe_blocking_queue() {
+    use std::sync::Arc;
+
+    let queue = BlockingQueue::<Arc<i32>>::new();
+    let mut p = Publisher::new();
+    p.subscribe_blocking_queue(&queue);
+    p.publish(100);
+
+    let mut drained = queue.clone();
+    assert_eq!(Some(Arc::new(100)), drained.poll());
+}
+
+#[test]
+fn test_publisher_delete_observer_directly() {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::Arc;
+
+    use super::common::SubscriptionFunc;
+
+    // Observable::delete_observer is the lower-level form of unsubscribe.
+    let count = Arc::new(AtomicI32::new(0));
+    let count_thread = count.clone();
+    let mut p = Publisher::new();
+    let s = Arc::new(SubscriptionFunc::new(move |_x: Arc<i32>| {
+        count_thread.fetch_add(1, Ordering::SeqCst);
+    }));
+    p.add_observer(s.clone());
+    p.publish(1);
+    p.delete_observer(s);
+    p.publish(1);
+    assert_eq!(1, count.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_publisher_default_has_no_observers() {
+    use std::sync::Arc;
+
+    // A default Publisher with no subscribers simply drops published values.
+    let mut p: Publisher<i32> = Default::default();
+    p.publish(1); // no panic, no observers
+    // Adding one afterwards works as normal.
+    let queue = BlockingQueue::<Arc<i32>>::new();
+    p.subscribe_blocking_queue(&queue);
+    p.publish(2);
+    let mut drained = queue.clone();
+    assert_eq!(Some(Arc::new(2)), drained.poll());
+}

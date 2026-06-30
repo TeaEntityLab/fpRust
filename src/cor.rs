@@ -705,3 +705,113 @@ fn test_cor_new() {
 
     thread::sleep(time::Duration::from_millis(1));
 }
+
+#[test]
+fn test_cor_do_m_pattern_local_only() {
+    // do_m_pattern! using only the typed-let, pattern-let and ret arms.
+    // No coroutines involved, so it is pure and runs on the current thread.
+    let r = do_m_pattern! {
+        let x: i32 = 10;
+        let y = x * 2;
+        ret y
+    };
+    assert_eq!(20, r);
+}
+
+#[test]
+fn test_cor_do_m_pattern_reassign_and_exec() {
+    use std::cell::Cell;
+
+    // Exercises let / let-mut-typed / reassignment / exec / ret arms.
+    let side = Cell::new(0);
+    let r = do_m_pattern! {
+        let base = 3;
+        let mut _acc: i32 = 0;
+        _acc = base * 2;
+        exec { side.set(_acc); };
+        ret _acc + 1
+    };
+    assert_eq!(7, r);
+    assert_eq!(6, side.get());
+}
+
+#[test]
+fn test_cor_do_m_round_trip_capture() {
+    use super::sync::{BlockingQueue, Queue};
+    use std::time::Duration;
+
+    // The inner coroutine yields a String outward and receives an i16 back;
+    // the outer (sync) do_m entry yields into it and receives the String.
+    let received_by_inner = BlockingQueue::<i16>::new();
+    let received_by_inner_t = received_by_inner.clone();
+    let received_by_outer = BlockingQueue::<String>::new();
+    let mut received_by_outer_t = received_by_outer.clone();
+
+    do_m!(move |this| {
+        // Clone per invocation so the outer FnMut never moves its capture out.
+        let mut inner_q = received_by_inner_t.clone();
+        let cor_inner = cor_newmutex_and_start!(
+            move |this| {
+                let got = cor_yield!(this, Some(String::from("inner_value")));
+                if let Some(v) = got {
+                    inner_q.offer(v);
+                }
+            },
+            String,
+            i16
+        );
+
+        let got = cor_yield_from!(this, cor_inner, Some(7));
+        if let Some(v) = got {
+            received_by_outer_t.offer(v);
+        }
+    });
+
+    // do_m! is synchronous; the outer response is already available.
+    let mut outer = received_by_outer.clone();
+    outer.timeout = Some(Duration::from_secs(5));
+    assert_eq!(Some(String::from("inner_value")), outer.take());
+
+    // The inner coroutine offers after replying; bounded take guards any hang.
+    let mut inner = received_by_inner.clone();
+    inner.timeout = Some(Duration::from_secs(5));
+    assert_eq!(Some(7), inner.take());
+}
+
+#[test]
+fn test_cor_do_m_two_inner_sequence() {
+    use super::sync::{BlockingQueue, Queue};
+    use std::time::Duration;
+
+    // Two independent inner coroutines yielded into in order; responses must
+    // come back in the same sequence.
+    let results = BlockingQueue::<String>::new();
+    let mut results_t = results.clone();
+
+    do_m!(move |this| {
+        let a = cor_newmutex_and_start!(
+            |this| {
+                let _ = cor_yield!(this, Some(String::from("A")));
+            },
+            String,
+            i16
+        );
+        let b = cor_newmutex_and_start!(
+            |this| {
+                let _ = cor_yield!(this, Some(String::from("B")));
+            },
+            String,
+            i16
+        );
+
+        let ra = cor_yield_from!(this, a, Some(1)).unwrap();
+        let rb = cor_yield_from!(this, b, Some(2)).unwrap();
+        results_t.offer(ra);
+        results_t.offer(rb);
+    });
+
+    let mut q = results.clone();
+    q.timeout = Some(Duration::from_secs(5));
+    assert_eq!(Some(String::from("A")), q.take());
+    assert_eq!(Some(String::from("B")), q.take());
+}

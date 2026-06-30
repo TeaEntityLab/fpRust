@@ -608,3 +608,210 @@ fn test_will_sync_new() {
     assert_eq!(true, h.is_started());
     assert_eq!(1, h.result().unwrap());
 }
+
+#[test]
+fn test_sync_countdownlatch_zero_does_not_block() {
+    // A latch initialized at 0 is already released.
+    let latch = CountDownLatch::new(0);
+    latch.wait();
+}
+
+#[test]
+fn test_sync_countdownlatch_countdown_releases() {
+    let latch = CountDownLatch::new(2);
+    latch.countdown();
+    latch.countdown();
+    // Now at zero; wait returns.
+    latch.wait();
+}
+
+#[test]
+fn test_sync_countdownlatch_countdown_below_zero_is_safe() {
+    // Extra countdowns past zero are guarded and do not underflow.
+    let latch = CountDownLatch::new(1);
+    latch.countdown();
+    latch.countdown();
+    latch.countdown();
+    latch.wait();
+}
+
+#[test]
+fn test_sync_countdownlatch_cross_thread() {
+    use std::thread;
+
+    let latch = CountDownLatch::new(5);
+    let latch_thread = latch.clone();
+    thread::spawn(move || {
+        for _ in 0..5 {
+            latch_thread.countdown();
+        }
+    });
+    // Blocks until the worker thread finishes counting down.
+    latch.wait();
+}
+
+#[test]
+fn test_sync_blocking_queue_fifo_offer_poll() {
+    let mut q = BlockingQueue::<i32>::new();
+    q.offer(1);
+    q.offer(2);
+    q.offer(3);
+    assert_eq!(Some(1), q.poll());
+    assert_eq!(Some(2), q.poll());
+    assert_eq!(Some(3), q.poll());
+}
+
+#[test]
+fn test_sync_blocking_queue_poll_empty_is_none() {
+    // poll() is non-blocking; an empty queue yields None immediately.
+    let mut q = BlockingQueue::<i32>::new();
+    assert_eq!(None, q.poll());
+}
+
+#[test]
+fn test_sync_blocking_queue_put_take_fifo() {
+    let mut q = BlockingQueue::<i32>::new();
+    q.put(10);
+    q.put(20);
+    assert_eq!(Some(10), q.take());
+    assert_eq!(Some(20), q.take());
+}
+
+#[test]
+fn test_sync_blocking_queue_take_timeout_is_none() {
+    // With a timeout set, take() on an empty queue gives up and returns None.
+    let mut q = BlockingQueue::<i32>::new();
+    q.timeout = Some(Duration::from_millis(5));
+    assert_eq!(None, q.take());
+}
+
+#[test]
+fn test_sync_blocking_queue_is_alive_and_stop() {
+    let mut q = BlockingQueue::<i32>::new();
+    assert_eq!(true, q.is_alive());
+
+    q.stop();
+    assert_eq!(false, q.is_alive());
+
+    // After stop, offer is a no-op and poll/take return None.
+    q.offer(1);
+    assert_eq!(None, q.poll());
+    assert_eq!(None, q.take());
+
+    // Stopping again is idempotent.
+    q.stop();
+    assert_eq!(false, q.is_alive());
+}
+
+#[test]
+fn test_sync_blocking_queue_poll_result_ok_and_err() {
+    let mut q = BlockingQueue::<i32>::new();
+    q.offer(7);
+    assert_eq!(true, q.poll_result().is_ok());
+    // Now empty: try_recv errors out.
+    assert_eq!(true, q.poll_result().is_err());
+}
+
+#[test]
+fn test_sync_blocking_queue_cross_thread_producer() {
+    use std::thread;
+
+    let mut q = BlockingQueue::<i32>::new();
+    // Guard against hangs: bound the blocking take.
+    q.timeout = Some(Duration::from_secs(5));
+    let mut producer = q.clone();
+    thread::spawn(move || {
+        producer.put(42);
+    });
+    // take() blocks until the producer enqueues.
+    assert_eq!(Some(42), q.take());
+}
+
+#[test]
+fn test_sync_blocking_queue_default_matches_new() {
+    let mut a = BlockingQueue::<i32>::new();
+    let mut b: BlockingQueue<i32> = Default::default();
+    assert_eq!(true, a.is_alive());
+    assert_eq!(true, b.is_alive());
+    a.offer(1);
+    b.offer(2);
+    assert_eq!(Some(1), a.poll());
+    assert_eq!(Some(2), b.poll());
+}
+
+#[test]
+fn test_sync_will_async_lifecycle_and_result() {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::Arc;
+
+    let latch = CountDownLatch::new(1);
+    let latch_thread = latch.clone();
+    let observed = Arc::new(AtomicI32::new(0));
+    let observed_thread = observed.clone();
+
+    let mut w = WillAsync::new(move || 21 * 2);
+
+    // Before start: neither started nor alive.
+    assert_eq!(false, w.is_started());
+    assert_eq!(false, w.is_alive());
+    // stop before start is a no-op.
+    w.stop();
+    assert_eq!(false, w.is_started());
+
+    w.add_callback(Arc::new(SubscriptionFunc::new(move |v: Arc<i32>| {
+        observed_thread.store(*v, Ordering::SeqCst);
+        latch_thread.countdown();
+    })));
+
+    w.start();
+    latch.wait();
+
+    assert_eq!(42, observed.load(Ordering::SeqCst));
+    assert_eq!(true, w.is_started());
+    assert_eq!(Some(42), w.result());
+}
+
+#[test]
+fn test_sync_will_async_remove_callback() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let fired = Arc::new(AtomicBool::new(false));
+    let fired_thread = fired.clone();
+
+    let mut w = WillAsync::new(move || 1);
+    let sub = Arc::new(SubscriptionFunc::new(move |_v: Arc<i32>| {
+        fired_thread.store(true, Ordering::SeqCst);
+    }));
+    w.add_callback(sub.clone());
+    // Remove before starting so the callback must not fire.
+    w.remove_callback(sub);
+
+    let done = CountDownLatch::new(1);
+    let done_thread = done.clone();
+    w.add_callback(Arc::new(SubscriptionFunc::new(move |_v: Arc<i32>| {
+        done_thread.countdown();
+    })));
+    w.start();
+    done.wait();
+
+    assert_eq!(false, fired.load(Ordering::SeqCst));
+    assert_eq!(Some(1), w.result());
+}
+
+#[test]
+fn test_sync_will_async_double_start_is_safe() {
+    use std::sync::Arc;
+
+    let latch = CountDownLatch::new(1);
+    let latch_thread = latch.clone();
+    let mut w = WillAsync::new(move || 5);
+    w.add_callback(Arc::new(SubscriptionFunc::new(move |_v: Arc<i32>| {
+        latch_thread.countdown();
+    })));
+    w.start();
+    // Second start is ignored (already started).
+    w.start();
+    latch.wait();
+    assert_eq!(Some(5), w.result());
+}

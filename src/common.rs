@@ -599,3 +599,145 @@ fn test_map_insert() {
     map_insert!(actual, ["1", "2", "3", "4", "5", "6",]);
     assert_eq!(expected, actual);
 }
+
+#[test]
+fn test_common_get_mut() {
+    let mut v = vec![10, 20, 30];
+
+    // Valid index hands back a mutable reference we can write through.
+    if let Some(elem) = get_mut(&mut v, 1) {
+        *elem = 99;
+    }
+    assert_eq!(vec![10, 99, 30], v);
+
+    // Out-of-range index yields None.
+    assert_eq!(None, get_mut(&mut v, 5));
+
+    // Empty vec yields None at index 0.
+    let mut empty = Vec::<i32>::new();
+    assert_eq!(None, get_mut(&mut empty, 0));
+}
+
+#[test]
+fn test_common_generate_id_non_empty_and_changes() {
+    use std::thread;
+    use std::time::Duration;
+
+    let a = generate_id();
+    assert_eq!(false, a.is_empty());
+
+    // Ids embed the elapsed time since epoch; after a delay a fresh id differs.
+    thread::sleep(Duration::from_millis(2));
+    let b = generate_id();
+    assert_eq!(true, a != b);
+}
+
+#[test]
+fn test_common_linked_list_async_fifo() {
+    let list = LinkedListAsync::<i32>::new();
+    list.push_back(1);
+    list.push_back(2);
+    list.push_back(3);
+
+    assert_eq!(Some(1), list.pop_front());
+    assert_eq!(Some(2), list.pop_front());
+    assert_eq!(Some(3), list.pop_front());
+    // Draining past the end returns None.
+    assert_eq!(None, list.pop_front());
+}
+
+#[test]
+fn test_common_linked_list_async_clone_shares_state() {
+    // Clones share the same underlying list (Arc<Mutex<..>> inside).
+    let list = LinkedListAsync::<i32>::new();
+    let clone = list.clone();
+
+    list.push_back(42);
+    assert_eq!(Some(42), clone.pop_front());
+
+    clone.push_back(7);
+    assert_eq!(Some(7), list.pop_front());
+}
+
+#[test]
+fn test_common_linked_list_async_default() {
+    use std::sync::Arc;
+
+    let list: LinkedListAsync<Arc<i32>> = Default::default();
+    list.push_back(Arc::new(5));
+    assert_eq!(Some(Arc::new(5)), list.pop_front());
+}
+
+#[test]
+fn test_common_raw_func_invokes_closure() {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::Arc;
+
+    let counter = Arc::new(AtomicI32::new(0));
+    let counter_thread = counter.clone();
+    let f = RawFunc::new(move || {
+        counter_thread.fetch_add(5, Ordering::SeqCst);
+    });
+
+    f.invoke();
+    assert_eq!(5, counter.load(Ordering::SeqCst));
+    // RawFunc holds FnMut; invoking again accumulates.
+    f.invoke();
+    assert_eq!(10, counter.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_common_raw_receiver_passes_value() {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::Arc;
+
+    let seen = Arc::new(AtomicI32::new(0));
+    let seen_thread = seen.clone();
+    let receiver = RawReceiver::new(move |x: Arc<i32>| {
+        seen_thread.store(*x, Ordering::SeqCst);
+    });
+
+    receiver.invoke(Arc::new(123));
+    assert_eq!(123, seen.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_common_subscription_func_on_next() {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::Arc;
+
+    let total = Arc::new(AtomicI32::new(0));
+    let total_thread = total.clone();
+    let sub = SubscriptionFunc::new(move |x: Arc<i32>| {
+        total_thread.fetch_add(*x, Ordering::SeqCst);
+    });
+
+    sub.on_next(Arc::new(3));
+    sub.on_next(Arc::new(4));
+    assert_eq!(7, total.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_common_subscription_func_clone_equal_same_id() {
+    let sub = SubscriptionFunc::new(|_x: Arc<i32>| {});
+    let cloned = sub.clone();
+
+    // Clone preserves identity (id is copied, not regenerated).
+    assert_eq!(sub.get_id(), cloned.get_id());
+    assert_eq!(true, sub == cloned);
+    assert_eq!(false, sub.get_id().is_empty());
+}
+
+#[test]
+fn test_common_subscription_func_distinct_ids() {
+    use std::thread;
+    use std::time::Duration;
+
+    let a = SubscriptionFunc::new(|_x: Arc<i32>| {});
+    thread::sleep(Duration::from_millis(2));
+    let b = SubscriptionFunc::new(|_x: Arc<i32>| {});
+
+    // Independently constructed subscriptions are not equal.
+    assert_eq!(true, a.get_id() != b.get_id());
+    assert_eq!(false, a == b);
+}

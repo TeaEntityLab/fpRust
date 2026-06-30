@@ -288,3 +288,91 @@ fn test_handler_new() {
 
     latch.clone().wait();
 }
+
+#[test]
+fn test_handler_lifecycle() {
+    let mut h = HandlerThread::new();
+    assert_eq!(false, h.is_started());
+    assert_eq!(false, h.is_alive());
+
+    h.start();
+    assert_eq!(true, h.is_started());
+    assert_eq!(true, h.is_alive());
+}
+
+#[test]
+fn test_handler_stop_before_start_is_noop() {
+    let mut h = HandlerThread::new();
+    h.stop();
+    assert_eq!(false, h.is_started());
+    assert_eq!(false, h.is_alive());
+}
+
+#[test]
+fn test_handler_post_executes_job() {
+    use super::sync::CountDownLatch;
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::Arc;
+
+    let value = Arc::new(AtomicI32::new(0));
+    let value_thread = value.clone();
+    let latch = CountDownLatch::new(1);
+    let latch_thread = latch.clone();
+
+    let mut h = HandlerThread::new();
+    h.start();
+    h.post(RawFunc::new(move || {
+        value_thread.store(123, Ordering::SeqCst);
+        latch_thread.countdown();
+    }));
+
+    latch.wait();
+    assert_eq!(123, value.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_handler_runs_jobs_in_fifo_order() {
+    use super::sync::{BlockingQueue, CountDownLatch};
+
+    let order = BlockingQueue::<i32>::new();
+    let latch = CountDownLatch::new(1);
+    let latch_thread = latch.clone();
+
+    let mut h = HandlerThread::new();
+    h.start();
+
+    for i in 0..3 {
+        let mut order_thread = order.clone();
+        h.post(RawFunc::new(move || {
+            order_thread.offer(i);
+        }));
+    }
+    h.post(RawFunc::new(move || {
+        latch_thread.countdown();
+    }));
+
+    latch.wait();
+    let mut drained = order.clone();
+    assert_eq!(Some(0), drained.poll());
+    assert_eq!(Some(1), drained.poll());
+    assert_eq!(Some(2), drained.poll());
+}
+
+#[test]
+fn test_handler_double_start_keeps_running() {
+    use super::sync::CountDownLatch;
+
+    let latch = CountDownLatch::new(1);
+    let latch_thread = latch.clone();
+
+    let mut h = HandlerThread::new();
+    h.start();
+    // Second start must be ignored, not spawn a second loop.
+    h.start();
+    assert_eq!(true, h.is_alive());
+
+    h.post(RawFunc::new(move || {
+        latch_thread.countdown();
+    }));
+    latch.wait();
+}

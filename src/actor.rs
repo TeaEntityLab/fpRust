@@ -498,3 +498,180 @@ fn test_actor_ask() {
     let i = result_i32.take();
     assert_eq!(None, i);
 }
+
+#[test]
+fn test_actor_receives_in_order() {
+    use super::common::LinkedListAsync;
+    use super::sync::CountDownLatch;
+
+    let sink = LinkedListAsync::<i32>::new();
+    let sink_t = sink.clone();
+    let latch = CountDownLatch::new(3);
+    let latch_t = latch.clone();
+
+    let mut actor = ActorAsync::new(
+        move |_this: &mut ActorAsync<_, _>, msg: i32, _ctx: &mut HashMap<String, i32>| {
+            sink_t.push_back(msg * 2);
+            latch_t.countdown();
+        },
+    );
+    let mut handle = actor.get_handle();
+    actor.start();
+
+    handle.send(1);
+    handle.send(2);
+    handle.send(3);
+    latch.wait();
+
+    // A single consumer thread drains the queue in FIFO order.
+    assert_eq!(Some(2), sink.pop_front());
+    assert_eq!(Some(4), sink.pop_front());
+    assert_eq!(Some(6), sink.pop_front());
+}
+
+#[test]
+fn test_actor_handle_id_and_no_parent() {
+    let actor = ActorAsync::new(
+        |_this: &mut ActorAsync<i32, i32>, _msg: i32, _ctx: &mut HashMap<String, i32>| {},
+    );
+    let handle = actor.get_handle();
+
+    // The handle shares the actor's identity.
+    assert_eq!(actor.get_id(), handle.get_id());
+    // A root actor has no parent and no children yet.
+    assert_eq!(true, actor.get_handle_parent().is_none());
+    assert_eq!(true, actor.get_handle_child("missing").is_none());
+}
+
+#[test]
+fn test_actor_context_accumulates_state() {
+    use super::common::LinkedListAsync;
+    use super::sync::CountDownLatch;
+
+    #[derive(Clone)]
+    enum Msg {
+        Add(i32),
+        Report,
+    }
+
+    let sink = LinkedListAsync::<i32>::new();
+    let sink_t = sink.clone();
+    let latch = CountDownLatch::new(1);
+    let latch_t = latch.clone();
+
+    let mut actor = ActorAsync::new(
+        move |_this: &mut ActorAsync<_, _>, msg: Msg, ctx: &mut HashMap<String, i32>| match msg {
+            Msg::Add(v) => {
+                let cur = ctx.get("sum").cloned().unwrap_or(0);
+                ctx.insert("sum".into(), cur + v);
+            }
+            Msg::Report => {
+                sink_t.push_back(ctx.get("sum").cloned().unwrap_or(0));
+                latch_t.countdown();
+            }
+        },
+    );
+    let mut handle = actor.get_handle();
+    actor.start();
+
+    handle.send(Msg::Add(1));
+    handle.send(Msg::Add(2));
+    handle.send(Msg::Add(3));
+    handle.send(Msg::Report);
+    latch.wait();
+
+    // Context persists across messages: 1 + 2 + 3.
+    assert_eq!(Some(6), sink.pop_front());
+}
+
+#[test]
+fn test_actor_spawn_child_and_forward() {
+    use super::common::LinkedListAsync;
+    use super::sync::CountDownLatch;
+
+    #[derive(Clone)]
+    enum Msg {
+        Spawn,
+        Forward(i32),
+    }
+
+    let sink = LinkedListAsync::<i32>::new();
+    let latch = CountDownLatch::new(1);
+    let sink_root = sink.clone();
+    let latch_root = latch.clone();
+
+    let mut root = ActorAsync::new(
+        move |this: &mut ActorAsync<_, _>, msg: Msg, _ctx: &mut HashMap<String, Msg>| match msg {
+            Msg::Spawn => {
+                let sink_child = sink_root.clone();
+                let latch_child = latch_root.clone();
+                this.spawn_with_handle(Box::new(
+                    move |_this: &mut ActorAsync<_, _>, m: Msg, _| {
+                        if let Msg::Forward(v) = m {
+                            sink_child.push_back(v * 10);
+                            latch_child.countdown();
+                        }
+                    },
+                ));
+            }
+            Msg::Forward(v) => {
+                // Spawn is processed before Forward (FIFO), so the child exists.
+                this.for_each_child(move |_id, handle| {
+                    handle.send(Msg::Forward(v));
+                });
+            }
+        },
+    );
+    let mut root_handle = root.get_handle();
+    root.start();
+
+    root_handle.send(Msg::Spawn);
+    root_handle.send(Msg::Forward(5));
+    latch.wait();
+
+    assert_eq!(Some(50), sink.pop_front());
+}
+
+#[test]
+fn test_actor_lifecycle() {
+    let mut actor = ActorAsync::new(
+        |_this: &mut ActorAsync<i32, i32>, _msg: i32, _ctx: &mut HashMap<String, i32>| {},
+    );
+    assert_eq!(false, actor.is_started());
+    assert_eq!(false, actor.is_alive());
+
+    actor.start();
+    assert_eq!(true, actor.is_started());
+    assert_eq!(true, actor.is_alive());
+
+    actor.stop();
+    assert_eq!(false, actor.is_alive());
+    // Once started, the started flag stays set even after stop.
+    assert_eq!(true, actor.is_started());
+}
+
+#[test]
+fn test_actor_double_start_is_safe() {
+    use super::common::LinkedListAsync;
+    use super::sync::CountDownLatch;
+
+    let sink = LinkedListAsync::<i32>::new();
+    let sink_t = sink.clone();
+    let latch = CountDownLatch::new(1);
+    let latch_t = latch.clone();
+
+    let mut actor = ActorAsync::new(
+        move |_this: &mut ActorAsync<_, _>, msg: i32, _ctx: &mut HashMap<String, i32>| {
+            sink_t.push_back(msg);
+            latch_t.countdown();
+        },
+    );
+    let mut handle = actor.get_handle();
+    actor.start();
+    // Second start must be ignored (no second consumer racing the queue).
+    actor.start();
+
+    handle.send(42);
+    latch.wait();
+    assert_eq!(Some(42), sink.pop_front());
+}
