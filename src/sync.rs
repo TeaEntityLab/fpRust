@@ -20,9 +20,10 @@
 //! shutdown protocol (join, interrupt, drain) is **not** implemented here and
 //! remains a deferred design item.
 //!
-//! [`BlockingQueue::stop`] drops the sender side; consumers blocked in
-//! [`BlockingQueue::take`] may remain blocked until timeout/disconnect depending
-//! on queue state.
+//! [`BlockingQueue::stop`] flips the alive flag so later `offer`/`take` are
+//! rejected; it does **not** close the shared `mpsc` channel, so a consumer
+//! already blocked in [`BlockingQueue::take`] stays blocked until its own
+//! `timeout` fires (or every clone is dropped).
 
 use std::error::Error;
 use std::sync::{
@@ -379,19 +380,21 @@ impl<T> BlockingQueue<T> {
         alive.load(Ordering::SeqCst)
     }
 
-    /// Closes the queue by dropping the sender. Does not join blocked consumer
-    /// threads; blocked [`take`](BlockingQueue::take) calls depend on timeout/disconnect.
+    /// Closes the queue: flips the `alive` flag so subsequent
+    /// [`offer`](Queue::offer)/[`put`](Queue::put) are dropped and
+    /// [`poll_result`](BlockingQueue::poll_result)/[`take_result`](BlockingQueue::take_result)
+    /// return `Err(Disconnected)`.
+    ///
+    /// Does **not** join or interrupt a consumer already blocked inside
+    /// [`take`](BlockingQueue::take): the shared `mpsc::Sender` lives behind
+    /// `Arc<Mutex<..>>` and cannot be dropped here, so an in-flight `recv`
+    /// only unblocks on its own `timeout` or when every clone is gone.
     pub fn stop(&mut self) {
-        {
-            let alive = &self.alive.lock().unwrap();
-            if !alive.load(Ordering::SeqCst) {
-                return;
-            }
-            alive.store(false, Ordering::SeqCst);
-
-            let sender = self.blocking_sender.lock().unwrap();
-            drop(sender);
+        let alive = &self.alive.lock().unwrap();
+        if !alive.load(Ordering::SeqCst) {
+            return;
         }
+        alive.store(false, Ordering::SeqCst);
     }
 }
 

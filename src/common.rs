@@ -408,12 +408,23 @@ impl<T> SubscriptionFunc<T> {
 
     /// Creates a subscription that forwards values to `func`.
     pub fn new(func: impl FnMut(Arc<T>) + Send + Sync + 'static) -> SubscriptionFunc<T> {
+        // The internal `cached` stream starts CLOSED: buffering begins only when
+        // `as_stream()` opens it. A callback-only subscription (the common case)
+        // has no stream consumer, so buffering from construction would leak
+        // every delivered value forever.
+        #[cfg(feature = "for_futures")]
+        let cached = {
+            let mut cached = LinkedListAsync::new();
+            cached.close_stream();
+            cached
+        };
+
         SubscriptionFunc {
             id: Self::generate_id(),
             receiver: RawReceiver::new(func),
 
             #[cfg(feature = "for_futures")]
-            cached: LinkedListAsync::new(),
+            cached,
         }
     }
 }
@@ -778,4 +789,29 @@ fn test_common_subscription_func_distinct_ids() {
 
     assert_eq!(true, a.get_id() != b.get_id());
     assert_eq!(false, a == b);
+}
+
+#[cfg(feature = "for_futures")]
+#[test]
+fn test_common_subscription_func_no_buffer_until_stream_opened() {
+    // Regression: a callback-only SubscriptionFunc must NOT buffer values into
+    // its internal cached stream. Nothing consumes that buffer until as_stream()
+    // is called, so buffering from construction is an unbounded memory leak.
+    let sub = SubscriptionFunc::new(|_x: Arc<i32>| {});
+
+    // Deliver values as a plain callback subscriber (the common case).
+    sub.on_next(Arc::new(1));
+    sub.on_next(Arc::new(2));
+    sub.on_next(Arc::new(3));
+
+    // The cached stream stays empty: no stream was ever opened.
+    assert_eq!(None, sub.cached.pop_front());
+
+    // Opening the stream begins buffering from that point on.
+    let mut sub = sub;
+    let stream = sub.as_stream();
+    sub.on_next(Arc::new(4));
+    sub.on_next(Arc::new(5));
+    assert_eq!(Some(Arc::new(4)), stream.pop_front());
+    assert_eq!(Some(Arc::new(5)), stream.pop_front());
 }

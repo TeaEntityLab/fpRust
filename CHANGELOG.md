@@ -15,6 +15,8 @@ All notable changes to this project are documented here. The format loosely foll
 - Latent-defect regression tests for the async primitives: `WillAsync` and `CountDownLatch` multi-waker and poll-before-start cases, and `BlockingQueue::{take,poll}_result_as_future` (previously untested).
 - Runnable doctests for the `foldl!` / `foldr!` macros (completing example coverage across all 11 `fp` macros) and for the opt-in async entry points `MonadIO::to_future` and `Publisher::subscribe_as_stream`.
 - README CI status badge (renders live once the workflow runs on the default branch); README now states edition 2021 / MSRV 1.56.
+- [docs/PROJECT_NOTES.md](docs/PROJECT_NOTES.md) — project origins (three-era history), cross-language family (`fpGo`/`fpEs`), and a catalog of less-known/"leaked" public APIs (`observe_on`/`subscribe_on` scheduler routing + its no-op trap, `subscribe_blocking_queue` push→pull bridge, `do_m_pattern!`, `map_insert!`, coroutine macros) with scenarios and anti-patterns. README gained a "Less-known / advanced capabilities" section pointing to it.
+- Two runnable examples for previously undemonstrated "leaked" capabilities: `examples/scheduler.rs` (`MonadIO::observe_on`/`subscribe_on` thread-hopping, with the `subscribe_on`-alone no-op trap proven by asserting the delivering `ThreadId`) and `examples/publisher_queue.rs` (`Publisher::as_blocking_queue` push→pull bridge). `examples/cor.rs` gained comments documenting the sync/async `yield_from` deadlock invariant.
 
 ### Changed
 
@@ -35,6 +37,8 @@ All notable changes to this project are documented here. The format loosely foll
 ### Fixed
 
 - **`WillAsync` / `CountDownLatch` woke only one awaiter** — the single `Option<Waker>` slot dropped all but the last-registered waker, hanging concurrent awaiters; now stores `Vec<Waker>` and wakes all (draining before waking to stay reentrancy-safe). `WillAsync::start()` now also wakes wakers registered before `start()`, so poll-before-start no longer hangs.
+- **`SubscriptionFunc` buffered every value forever (memory leak)** — under `for_futures`, `on_next` unconditionally pushed each delivered value into an internal `cached` stream, but that stream was open from construction (`LinkedListAsync::new()` starts `alive=true`). A callback-only subscription (the common `subscribe_fn` case) has no stream consumer, so the buffer grew without bound. The `cached` stream now starts **closed** and only begins buffering once `as_stream()` opens it — matching the documented open/close intent. Streaming (`subscribe_as_stream`) is unaffected. Regression-guarded by `test_common_subscription_func_no_buffer_until_stream_opened`.
+- **`BlockingQueue::stop` doc/dead-code mismatch** — the method and module docs claimed it "drops the sender side" to close the queue, but the code did `let sender = …lock().unwrap(); drop(sender);` which dropped the `MutexGuard`, not the `Sender` (which lives behind `Arc<Mutex<..>>` and cannot be dropped there). Removed the misleading no-op and corrected both docs to state the real mechanism: `stop()` flips the `alive` flag (gating later `offer`/`take`), and a consumer already blocked in `take()` stays blocked until its own `timeout`. No behavior change (verified by `test_sync_blocking_queue_is_alive_and_stop`).
 
 ---
 

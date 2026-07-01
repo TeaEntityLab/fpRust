@@ -1,3 +1,13 @@
+// Cor coroutines: `yield` / `yield_from` with the sync/async deadlock invariant.
+//
+// INVARIANT (see src/cor.rs): a `yield_from` TARGET must be async. Two
+// coroutines that yield to each other while BOTH sync deadlock — each blocks
+// its thread waiting for the other. The safe split, shown below:
+//   - the yield TARGET (cor1) is async  -> set_async(true)
+//   - the ENTRY driver (cor2) stays sync -> set_async(false)
+//
+// Run: cargo run --example cor --features=test_runtime
+
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -33,11 +43,11 @@ fn main() {
     );
 
     {
-        let cor1 = cor1.clone();
+        // Target of yield_from: MUST be async, or the pair deadlocks.
         cor1.lock().unwrap().set_async(true);
     }
     {
-        let cor2 = cor2.clone();
+        // Entry driver: sync is fine because its target (cor1) is async.
         cor2.lock().unwrap().set_async(false);
     }
     cor_start!(cor1);

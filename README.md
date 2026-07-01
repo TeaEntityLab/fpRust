@@ -43,6 +43,16 @@ Module-scoped flags (`fp`, `maybe`, `sync`, `cor`, `actor`, `handler`, `monadio`
 - **Actor** (`fp_rust::actor`) — lightweight actor model with `Context`, parent/child messaging, and ask-style patterns
 - **Maybe** (`fp_rust::maybe`) — optional/monad helpers
 
+### Less-known / advanced capabilities
+
+Some public APIs are easy to miss. See [docs/PROJECT_NOTES.md](docs/PROJECT_NOTES.md) for the full catalog, origins, and scenarios.
+
+- **Scheduler routing** — `MonadIO::observe_on` / `subscribe_on` (RxJava-style thread-hopping). **Trap:** with no `observe_on`, `subscribe_on` is a silent no-op and the effect runs on the caller. Set `observe_on` first.
+- **Push→pull bridge** — `Publisher::as_blocking_queue` / `subscribe_blocking_queue` forward published values into a `BlockingQueue` for deterministic pulling; `Publisher::subscribe_on` delivers off-thread.
+- **Sync↔async bridge** — `BlockingQueue::{take,poll}_result_as_future` (`for_futures`) `.await` a blocking queue.
+- **Pattern do-notation** — `do_m_pattern!` extends `do_m!` with typed `let`, reassignment, `exec`, and `ret`.
+- **Utility macros** — `map_insert!` (bulk `HashMap` fill), `cor_newmutex_and_start!` / `cor_yield!` (coroutine building), `contains!`, `reverse!`.
+
 ### Deferred / non-goals
 
 **Pattern matching** macros or DSL support are **not planned** for the current roadmap. They are explicitly deferred, not silently removed features.
@@ -80,11 +90,13 @@ cargo run --example <name> --features=test_runtime
 |---------|----------------|
 | `monadio` | `MonadIO` sync/async subscribe, handler scheduling |
 | `publisher` | `Publisher` pub/sub with handlers |
-| `cor` | `Cor` yield / yield_from and async/sync setup |
+| `cor` | `Cor` yield / yield_from and the sync/async deadlock invariant |
 | `do_notation` | `do_m!` do-notation over coroutines |
 | `fp` | `compose!`, `pipe!`, `map!` / `reduce!` / `filter!` pipelines |
 | `actor` | Actor spawn, parent/child messaging, shutdown messages |
 | `actor_ask` | Ask-style replies via `LinkedListAsync` and `BlockingQueue` |
+| `scheduler` | `MonadIO` `observe_on` / `subscribe_on` thread-hopping (and the `subscribe_on`-alone no-op trap) |
+| `publisher_queue` | `Publisher::as_blocking_queue` push→pull bridge |
 
 To run the full test suite with futures enabled:
 
@@ -97,6 +109,7 @@ cargo test --features=test_runtime
 - API reference: [docs.rs/fp_rust](https://docs.rs/fp_rust/)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
 - Roadmap and backlog: [ROADMAP.md](ROADMAP.md)
+- Project notes (origins, lineage, less-known APIs): [docs/PROJECT_NOTES.md](docs/PROJECT_NOTES.md)
 
 ## License
 
