@@ -7,11 +7,11 @@
 //!
 //! # Shutdown behavior
 //!
-//! [`ActorAsync::stop`] sets the alive flag only. The consumer thread is **not**
-//! joined; commented-out [`join`](std::thread::JoinHandle::join) code shows
-//! join-based shutdown was deferred. A thread blocked in [`take`](crate::sync::BlockingQueue::take)
-//! is not interrupted. README/examples that use `thread::sleep` after `stop` are
-//! demo synchronization only—not a supported shutdown contract.
+//! [`ActorAsync::stop`] clears the actor alive flag and stops the mailbox queue
+//! from accepting later sends. The consumer thread is **not** joined;
+//! commented-out [`join`](std::thread::JoinHandle::join) code shows join-based
+//! shutdown was deferred. A thread already blocked in
+//! [`take`](crate::sync::BlockingQueue::take) is not interrupted.
 
 use std::collections::HashMap;
 use std::sync::{
@@ -176,7 +176,8 @@ where
         alive.load(Ordering::SeqCst)
     }
 
-    /// Clears alive flag only; does not join the mailbox thread (see module docs).
+    /// Clears the actor alive flag and stops the mailbox accepting later sends;
+    /// does not join the mailbox thread (see module docs).
     pub fn stop(&mut self) {
         {
             let started_alive = self.started_alive.lock().unwrap();
@@ -190,6 +191,9 @@ where
             }
             alive.store(false, Ordering::SeqCst);
         }
+
+        self.queue.stop();
+
         // NOTE: Kill thread <- OS depending
         // let mut join_handle = self.join_handle.lock().unwrap();
         // join_handle
@@ -589,6 +593,27 @@ fn test_actor_handle_id_and_no_parent() {
     // A root actor has no parent and no children yet.
     assert_eq!(true, actor.get_handle_parent().is_none());
     assert_eq!(true, actor.get_handle_child("missing").is_none());
+}
+
+#[test]
+fn test_actor_handle_send_after_stop_is_rejected() {
+    let mut actor = ActorAsync::new(
+        |_this: &mut ActorAsync<i32, i32>, _msg: i32, _ctx: &mut HashMap<String, i32>| {},
+    );
+    let mut handle = actor.get_handle();
+
+    {
+        let started_alive = actor.started_alive.lock().unwrap();
+        let (started, alive) = &*started_alive;
+        started.store(true, Ordering::SeqCst);
+        alive.store(true, Ordering::SeqCst);
+    }
+
+    actor.stop();
+    handle.send(7);
+
+    let mut queue = handle.queue.clone();
+    assert_eq!(None, queue.poll());
 }
 
 #[test]

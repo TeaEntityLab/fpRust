@@ -157,18 +157,22 @@ impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<
         self.observers.push(observer);
     }
     fn delete_observer(&mut self, observer: Arc<SubscriptionFunc<X>>) {
-        let id;
-        {
-            id = observer.get_id();
-
-            #[cfg(feature = "for_futures")]
-            observer.as_ref().clone().close_stream();
-        }
+        let id = observer.get_id();
 
         for (index, obs) in self.observers.iter().enumerate() {
             if obs.get_id() == id {
                 // println!("delete_observer({});", observer);
+                #[cfg(feature = "for_futures")]
+                {
+                    let removed = self.observers.remove(index);
+                    if !self.observers.iter().any(|obs| obs.get_id() == id) {
+                        removed.as_ref().clone().close_stream();
+                    }
+                }
+
+                #[cfg(not(feature = "for_futures"))]
                 self.observers.remove(index);
+
                 return;
             }
         }
@@ -531,6 +535,43 @@ fn test_publisher_delete_observer_directly() {
     p.delete_observer(s);
     p.publish(1);
     assert_eq!(1, count.load(Ordering::SeqCst));
+}
+
+#[cfg(feature = "for_futures")]
+#[test]
+fn test_publisher_delete_non_member_does_not_close_subscription_stream() {
+    use super::common::SubscriptionFunc;
+
+    let mut owner = Publisher::new();
+    let mut stranger = Publisher::new();
+    let subscription = Arc::new(SubscriptionFunc::new(|_x: Arc<i32>| {}));
+    let stream = owner.subscribe_as_stream(subscription.clone());
+
+    // Removing from a publisher that never owned the subscription must not
+    // close the stream attached to the real publisher.
+    stranger.delete_observer(subscription);
+
+    owner.publish(9);
+    assert_eq!(Some(Arc::new(9)), stream.pop_front());
+}
+
+#[cfg(feature = "for_futures")]
+#[test]
+fn test_publisher_delete_duplicate_keeps_stream_open_until_last_observer() {
+    use super::common::SubscriptionFunc;
+
+    let mut publisher = Publisher::new();
+    let subscription = Arc::new(SubscriptionFunc::new(|_x: Arc<i32>| {}));
+    let stream = publisher.subscribe_as_stream(subscription.clone());
+    publisher.subscribe(subscription.clone());
+
+    publisher.delete_observer(subscription.clone());
+    publisher.publish(1);
+    assert_eq!(Some(Arc::new(1)), stream.pop_front());
+
+    publisher.delete_observer(subscription);
+    publisher.publish(2);
+    assert_eq!(None, stream.pop_front());
 }
 
 #[test]

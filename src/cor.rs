@@ -356,26 +356,24 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
         alive.load(Ordering::SeqCst)
     }
 
-    /// Cooperative stop: `yield_from` targeting this coroutine returns `None`.
+    /// Cooperative stop: clears the `alive` flag so a `yield_from` targeting this
+    /// coroutine returns `None` (its `receive` early-returns without queueing).
     ///
-    /// Does not join an async worker thread; shutdown redesign is deferred.
+    /// Does not join an async worker thread; shutdown redesign is deferred. The
+    /// op channel is not closed here: the shared `Sender` lives behind
+    /// `Arc<Mutex<..>>` and cannot be dropped from one handle, so cooperative
+    /// stop is delivered by the `alive` flag alone.
     pub fn stop(&mut self) {
-        {
-            let started_alive = self.started_alive.lock().unwrap();
-            let (started, alive) = &*started_alive;
+        let started_alive = self.started_alive.lock().unwrap();
+        let (started, alive) = &*started_alive;
 
-            if !started.load(Ordering::SeqCst) {
-                return;
-            }
-            if !alive.load(Ordering::SeqCst) {
-                return;
-            }
-            alive.store(false, Ordering::SeqCst);
-
-            {
-                drop(self.op_ch_sender.lock().unwrap());
-            }
+        if !started.load(Ordering::SeqCst) {
+            return;
         }
+        if !alive.load(Ordering::SeqCst) {
+            return;
+        }
+        alive.store(false, Ordering::SeqCst);
     }
 
     fn receive(

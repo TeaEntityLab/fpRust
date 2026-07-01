@@ -30,7 +30,7 @@ pub trait Handler: Send + Sync + 'static {
     /// `true` while the worker loop may still execute jobs.
     fn is_alive(&mut self) -> bool;
 
-    /// Starts (or resumes) the worker loop.
+    /// Starts the worker loop once; later calls are no-ops after `is_started` is true.
     fn start(&mut self);
 
     /// Stops accepting new jobs. Does not join the worker thread or interrupt a
@@ -197,6 +197,14 @@ impl Handler for HandlerThreadInner {
     }
 
     fn post(&mut self, func: RawFunc) {
+        // Preserve pre-start queueing, but once a handler has been started and
+        // then stopped it must reject new work. Otherwise post-after-stop can
+        // either leak into an un-drained queue or wake a worker blocked in
+        // take() and execute one more job after stop().
+        if self.started.load(Ordering::SeqCst) && !self.alive.load(Ordering::SeqCst) {
+            return;
+        }
+
         let q = Arc::make_mut(&mut self.q);
 
         q.put(func);
@@ -275,6 +283,27 @@ fn test_handler_stop_before_start_is_noop() {
     h.stop();
     assert_eq!(false, h.is_started());
     assert_eq!(false, h.is_alive());
+}
+
+#[test]
+fn test_handler_inner_post_after_stop_is_rejected() {
+    let mut inner = HandlerThreadInner::new();
+    inner.started.store(true, Ordering::SeqCst);
+    inner.alive.store(false, Ordering::SeqCst);
+
+    inner.post(RawFunc::new(|| panic!("stopped handler accepted work")));
+
+    let mut q = inner.q.as_ref().clone();
+    assert_eq!(true, q.poll().is_none());
+}
+
+#[test]
+fn test_handler_post_before_start_is_preserved() {
+    let mut inner = HandlerThreadInner::new();
+    inner.post(RawFunc::new(|| {}));
+
+    let mut q = inner.q.as_ref().clone();
+    assert_eq!(true, q.poll().is_some());
 }
 
 #[test]

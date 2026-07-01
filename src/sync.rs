@@ -156,48 +156,52 @@ where
     }
 
     fn start(&mut self) {
-        let started_alive = self.started_alive.lock().unwrap();
-        let (started, alive) = &*started_alive;
-        if started.load(Ordering::SeqCst) {
-            return;
-        }
-        started.store(true, Ordering::SeqCst);
-        if alive.load(Ordering::SeqCst) {
-            return;
-        }
-        alive.store(true, Ordering::SeqCst);
-
-        let mut this = self.clone();
-        let _effect = self.effect.clone();
-        let _publisher = self.publisher.clone();
-
-        let mut handler = self.handler.lock().unwrap();
-        handler.start();
-        handler.post(RawFunc::new(move || {
-            let result = { (_effect.lock().unwrap())() };
-            {
-                (*this.result.lock().unwrap()) = Some(result.clone());
+        {
+            let started_alive = self.started_alive.lock().unwrap();
+            let (started, alive) = &*started_alive;
+            if started.load(Ordering::SeqCst) {
+                return;
             }
-            {
-                _publisher.lock().unwrap().publish(result);
+            started.store(true, Ordering::SeqCst);
+            if alive.load(Ordering::SeqCst) {
+                return;
             }
-            this.stop();
-        }));
+            alive.store(true, Ordering::SeqCst);
+
+            let mut this = self.clone();
+            let _effect = self.effect.clone();
+            let _publisher = self.publisher.clone();
+
+            let mut handler = self.handler.lock().unwrap();
+            handler.start();
+            handler.post(RawFunc::new(move || {
+                let result = { (_effect.lock().unwrap())() };
+                {
+                    (*this.result.lock().unwrap()) = Some(result.clone());
+                }
+                {
+                    _publisher.lock().unwrap().publish(result);
+                }
+                this.stop();
+            }));
+        }
 
         #[cfg(feature = "for_futures")]
         wake_all_wakers(&self.waker);
     }
 
     fn stop(&mut self) {
-        let started_alive = self.started_alive.lock().unwrap();
-        let (started, alive) = &*started_alive;
-        if !started.load(Ordering::SeqCst) {
-            return;
+        {
+            let started_alive = self.started_alive.lock().unwrap();
+            let (started, alive) = &*started_alive;
+            if !started.load(Ordering::SeqCst) {
+                return;
+            }
+            if !alive.load(Ordering::SeqCst) {
+                return;
+            }
+            alive.store(false, Ordering::SeqCst);
         }
-        if !alive.load(Ordering::SeqCst) {
-            return;
-        }
-        alive.store(false, Ordering::SeqCst);
 
         #[cfg(feature = "for_futures")]
         wake_all_wakers(&self.waker);
@@ -260,15 +264,20 @@ impl CountDownLatch {
         }
     }
 
-    /// Decrements the counter (never below zero) and wakes one waiter.
+    /// Decrements the counter (never below zero). When the counter reaches
+    /// zero, wakes every blocking and async waiter.
     pub fn countdown(&self) {
-        {
-            let (lock, cvar) = &*self.pair.clone();
+        let (lock, cvar) = &*self.pair;
+        let should_wake = {
             let mut started = lock.lock().unwrap();
             if *started > 0 {
                 *started -= 1;
             }
-            cvar.notify_one();
+            *started == 0
+        };
+
+        if should_wake {
+            cvar.notify_all();
 
             #[cfg(feature = "for_futures")]
             wake_all_wakers(&self.waker);
@@ -867,6 +876,46 @@ fn test_sync_countdownlatch_cross_thread() {
     });
     // Blocks until the worker thread finishes counting down.
     latch.wait();
+}
+
+#[test]
+fn test_sync_countdownlatch_releases_all_waiters() {
+    use std::sync::mpsc;
+    use std::thread;
+
+    let latch = CountDownLatch::new(1);
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel();
+    let mut handles = Vec::new();
+
+    for _ in 0..4 {
+        let waiter = latch.clone();
+        let ready_tx = ready_tx.clone();
+        let done_tx = done_tx.clone();
+        handles.push(thread::spawn(move || {
+            ready_tx.send(()).unwrap();
+            waiter.wait();
+            done_tx.send(()).unwrap();
+        }));
+    }
+    drop(ready_tx);
+    drop(done_tx);
+
+    for _ in 0..4 {
+        assert_eq!(true, ready_rx.recv_timeout(Duration::from_secs(1)).is_ok());
+    }
+    for _ in 0..100 {
+        thread::yield_now();
+    }
+
+    latch.countdown();
+
+    for _ in 0..4 {
+        assert_eq!(true, done_rx.recv_timeout(Duration::from_secs(1)).is_ok());
+    }
+    for handle in handles {
+        handle.join().unwrap();
+    }
 }
 
 #[test]
