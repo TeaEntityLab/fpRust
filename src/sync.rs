@@ -1,7 +1,28 @@
-/*!
-In this module there're implementations & tests
-of general async handling features.
-*/
+//! Synchronization primitives: latches, queues, and deferred work (`Will`).
+//!
+//! # Crate features
+//!
+//! | Item | Required features |
+//! |------|-------------------|
+//! | Module (`sync`) | `sync` (part of default `pure`) |
+//! | [`WillAsync`] | `publisher` **and** `handler` |
+//! | [`WillAsync`] as [`Future`] | above + `for_futures` |
+//! | [`CountDownLatch`] as `Future` | `for_futures` |
+//! | [`BlockingQueue::poll_result_as_future`] / [`BlockingQueue::take_result_as_future`] | `for_futures` |
+//!
+//! Enable everything this module can expose in tests with the `test_runtime`
+//! feature (`pure` + `for_futures`).
+//!
+//! # Shutdown and blocking behavior
+//!
+//! [`WillAsync::stop`] flips the alive flag only; it does not cancel an effect
+//! already running on a [`Handler`]. A cooperative
+//! shutdown protocol (join, interrupt, drain) is **not** implemented here and
+//! remains a deferred design item.
+//!
+//! [`BlockingQueue::stop`] drops the sender side; consumers blocked in
+//! [`BlockingQueue::take`] may remain blocked until timeout/disconnect depending
+//! on queue state.
 
 use std::error::Error;
 use std::sync::{
@@ -30,64 +51,41 @@ use super::handler::{Handler, HandlerThread};
 #[cfg(feature = "publisher")]
 use super::publisher::Publisher;
 
-/**
-`Will` `trait` defines the interface which could do actions in its `Handler`.
-
-# Remarks
-
-This is highly inspired by `Java Future` concepts.
-
-*/
+/// Deferred computation with completion callbacks (Java `Future`-like).
+///
+/// The primary implementation is [`WillAsync`] when both `publisher` and
+/// `handler` features are enabled.
 pub trait Will<T>: Send + Sync + 'static {
-    /**
-    Did this `Will` start?
-    Return `true` when it did started (no matter it has stopped or not)
-
-    */
+    /// Returns `true` after [`start`](Will::start) has been called, even if
+    /// [`stop`](Will::stop) has already run.
     fn is_started(&mut self) -> bool;
 
-    /**
-    Is this `Will` alive?
-    Return `true` when it has started and not stopped yet.
-    */
+    /// Returns `true` while the effect may still run (started and not stopped).
     fn is_alive(&mut self) -> bool;
 
-    /**
-    Start `Will`.
-    */
+    /// Schedules the effect on the backing [`Handler`].
     fn start(&mut self);
 
-    /**
-    Stop `Will`.
-    */
+    /// Marks the will as no longer alive. Does not join or interrupt the handler
+    /// thread; an in-flight effect may still finish.
     fn stop(&mut self);
 
-    /**
-    Add a callback called when it has completed.
-
-    # Arguments
-
-    * `subscription` - The callback.
-    ``
-    */
+    /// Registers a callback invoked when the result is published.
     fn add_callback(&mut self, subscription: Arc<SubscriptionFunc<T>>);
 
-    /**
-    Remove a callback called when it has completed.
-
-    # Arguments
-
-    * `subscription` - The callback.
-    ``
-    */
+    /// Removes a previously registered callback.
     fn remove_callback(&mut self, subscription: Arc<SubscriptionFunc<T>>);
 
-    /**
-    Get the result.
-    */
+    /// Returns the last computed result, if any.
     fn result(&mut self) -> Option<T>;
 }
 
+/// Runs a `FnMut() -> T` on a [`HandlerThread`],
+/// publishes the result through [`Publisher`], and
+/// exposes [`Will`] lifecycle methods.
+///
+/// Requires **`publisher`** and **`handler`**. With **`for_futures`**, also
+/// implements [`Future`] (`Output = Option<T>`).
 #[cfg(all(feature = "publisher", feature = "handler"))]
 #[derive(Clone)]
 pub struct WillAsync<T> {
@@ -98,14 +96,16 @@ pub struct WillAsync<T> {
     result: Arc<Mutex<Option<T>>>,
 
     #[cfg(feature = "for_futures")]
-    waker: Arc<Mutex<Option<Waker>>>,
+    waker: Arc<Mutex<Vec<Waker>>>,
 }
 
 #[cfg(all(feature = "publisher", feature = "handler"))]
 impl<T> WillAsync<T> {
+    /// Creates a will backed by a default [`HandlerThread`].
     pub fn new(effect: impl FnMut() -> T + Send + Sync + 'static) -> WillAsync<T> {
         Self::new_with_handler(effect, HandlerThread::new_with_mutex())
     }
+    /// Creates a will that runs on the given handler.
     pub fn new_with_handler(
         effect: impl FnMut() -> T + Send + Sync + 'static,
         handler: Arc<Mutex<dyn Handler>>,
@@ -118,8 +118,22 @@ impl<T> WillAsync<T> {
             result: Arc::new(Mutex::new(None)),
 
             #[cfg(feature = "for_futures")]
-            waker: Arc::new(Mutex::new(None)),
+            waker: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+}
+
+#[cfg(feature = "for_futures")]
+fn wake_all_wakers(wakers: &Arc<Mutex<Vec<Waker>>>) {
+    // Drain under the lock, then wake AFTER releasing it: a waker may
+    // synchronously re-poll on this thread and re-register, which would
+    // self-deadlock the non-reentrant Mutex if we woke while still holding it.
+    let drained: Vec<Waker> = {
+        let mut guard = wakers.lock().unwrap();
+        guard.drain(..).collect()
+    };
+    for waker in drained {
+        waker.wake();
     }
 }
 
@@ -168,6 +182,9 @@ where
             }
             this.stop();
         }));
+
+        #[cfg(feature = "for_futures")]
+        wake_all_wakers(&self.waker);
     }
 
     fn stop(&mut self) {
@@ -182,11 +199,7 @@ where
         alive.store(false, Ordering::SeqCst);
 
         #[cfg(feature = "for_futures")]
-        {
-            if let Some(waker) = self.waker.lock().unwrap().take() {
-                waker.wake()
-            }
-        }
+        wake_all_wakers(&self.waker);
     }
 
     fn add_callback(&mut self, subscription: Arc<SubscriptionFunc<T>>) {
@@ -216,44 +229,37 @@ where
         if started.load(Ordering::SeqCst) && (!alive.load(Ordering::SeqCst)) {
             Poll::Ready(self.clone().result())
         } else {
-            {
-                self.waker.lock().unwrap().replace(cx.waker().clone());
-            }
+            self.waker.lock().unwrap().push(cx.waker().clone());
             Poll::Pending
         }
     }
 }
 
-/**
-`CountDownLatch` implements a latch with a value(> 0),
-waiting for the value counted down until <= 0
-(the countdown action would be in other threads).
-
-# Remarks
-
-It's inspired by `CountDownLatch` in `Java`
-, and easily use it on async scenaios.
-
-``
-*/
+/// Count-down latch (Java `CountDownLatch`-like).
+///
+/// [`wait`](CountDownLatch::wait) blocks the current thread until the internal
+/// counter reaches zero. With the **`for_futures`** feature, also implements
+/// [`Future`] (`Output = ()`).
 #[derive(Debug, Clone)]
 pub struct CountDownLatch {
     pair: Arc<(Arc<Mutex<u64>>, Condvar)>,
 
     #[cfg(feature = "for_futures")]
-    waker: Arc<Mutex<Option<Waker>>>,
+    waker: Arc<Mutex<Vec<Waker>>>,
 }
 
 impl CountDownLatch {
+    /// Creates a latch initialized to `count` (values `> 0` are typical).
     pub fn new(count: u64) -> CountDownLatch {
         CountDownLatch {
             pair: Arc::new((Arc::new(Mutex::new(count)), Condvar::new())),
 
             #[cfg(feature = "for_futures")]
-            waker: Arc::new(Mutex::new(None)),
+            waker: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
+    /// Decrements the counter (never below zero) and wakes one waiter.
     pub fn countdown(&self) {
         {
             let (lock, cvar) = &*self.pair.clone();
@@ -264,15 +270,11 @@ impl CountDownLatch {
             cvar.notify_one();
 
             #[cfg(feature = "for_futures")]
-            {
-                let mut waker = self.waker.lock().unwrap();
-                if let Some(waker) = waker.take() {
-                    waker.wake()
-                }
-            }
+            wake_all_wakers(&self.waker);
         }
     }
 
+    /// Blocks until the counter is zero.
     pub fn wait(&self) {
         let (lock, cvar) = &*self.pair;
 
@@ -288,13 +290,10 @@ impl CountDownLatch {
         let mut started = lock.lock().unwrap();
 
         while *started > 0 {
-            let result = cvar.wait(started);
-
-            if result.is_err() {
-                started = result.err().unwrap().into_inner();
-            } else {
-                started = result.unwrap();
-            }
+            started = match cvar.wait(started) {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
         }
     }
 }
@@ -307,9 +306,7 @@ impl Future for CountDownLatch {
         let (remaining, _) = &*self.pair;
         let count = remaining.lock().unwrap();
         if *count > 0 {
-            {
-                self.waker.lock().unwrap().replace(cx.waker().clone());
-            }
+            self.waker.lock().unwrap().push(cx.waker().clone());
             Poll::Pending
         } else {
             Poll::Ready(())
@@ -317,43 +314,33 @@ impl Future for CountDownLatch {
     }
 }
 
-/**
-`Queue` `trait` defined the interface which perform basic `Queue` actions.
-
-# Arguments
-
-* `T` - The generic type of data
-
-# Remarks
-
-It's inspired by `Queue` in `Java`.
-
-``
-*/
+/// Minimal queue interface (Java `Queue`-like).
 pub trait Queue<T> {
+    /// Enqueues if the queue is alive (non-blocking for [`BlockingQueue`]).
     fn offer(&mut self, v: T);
+    /// Non-blocking dequeue.
     fn poll(&mut self) -> Option<T>;
+    /// Enqueues (alias of [`offer`](Queue::offer) for [`BlockingQueue`]).
     fn put(&mut self, v: T);
+    /// Blocking dequeue when no timeout is configured on [`BlockingQueue`].
     fn take(&mut self) -> Option<T>;
 }
 
-/**
-`BlockingQueue` implements `Queue` `trait` and provides `BlockingQueue` features.
-
-# Arguments
-
-* `T` - The generic type of data
-
-# Remarks
-
-It's inspired by `BlockingQueue` in `Java`,
-, and easily use it on async scenaios.
-
-``
-*/
+/// Thread-safe bounded channel wrapper (Java `BlockingQueue`-like).
+///
+/// # Fields
+///
+/// * `timeout` — when set, [`take`](BlockingQueue::take) uses
+///   [`recv_timeout`](std::sync::mpsc::Receiver::recv_timeout) instead of blocking forever.
+/// * `panic` — when `true`, send/receive errors panic instead of mapping to `None`.
+///
+/// With **`for_futures`**, [`BlockingQueue::poll_result_as_future`] and [`BlockingQueue::take_result_as_future`]
+/// offload blocking recv to the shared thread pool.
 #[derive(Debug, Clone)]
 pub struct BlockingQueue<T> {
+    /// Optional upper bound on blocking [`take`](BlockingQueue::take) waits.
     pub timeout: Option<Duration>,
+    /// When `true`, propagate channel errors as panics.
     pub panic: bool,
     alive: Arc<Mutex<AtomicBool>>,
     blocking_sender: Arc<Mutex<mpsc::Sender<T>>>,
@@ -381,15 +368,19 @@ impl<T> Default for BlockingQueue<T> {
 }
 
 impl<T> BlockingQueue<T> {
+    /// Creates an open queue backed by an `mpsc` channel.
     pub fn new() -> BlockingQueue<T> {
         Default::default()
     }
 
+    /// Returns whether the queue accepts new items.
     pub fn is_alive(&self) -> bool {
         let alive = &self.alive.lock().unwrap();
         alive.load(Ordering::SeqCst)
     }
 
+    /// Closes the queue by dropping the sender. Does not join blocked consumer
+    /// threads; blocked [`take`](BlockingQueue::take) calls depend on timeout/disconnect.
     pub fn stop(&mut self) {
         {
             let alive = &self.alive.lock().unwrap();
@@ -430,10 +421,7 @@ where
             // return None;
         }
 
-        match result {
-            Ok(v) => Some(v),
-            Err(_) => None,
-        }
+        result.ok()
     }
 
     fn put(&mut self, v: T) {
@@ -450,10 +438,7 @@ where
             // return None;
         }
 
-        match result {
-            Ok(v) => Some(v),
-            Err(_) => None,
-        }
+        result.ok()
     }
 }
 
@@ -461,6 +446,7 @@ impl<T> BlockingQueue<T>
 where
     T: Send + 'static,
 {
+    /// Non-blocking receive with explicit error type.
     pub fn poll_result(&mut self) -> Result<T, Box<dyn Error + Send>> {
         if !self.is_alive() {
             return Err(Box::new(RecvTimeoutError::Disconnected));
@@ -476,6 +462,7 @@ where
         }
     }
 
+    /// Blocking receive honoring [`timeout`](BlockingQueue::timeout).
     pub fn take_result(&mut self) -> Result<T, Box<dyn Error + Send>> {
         if !self.is_alive() {
             return Err(Box::new(RecvTimeoutError::Disconnected));
@@ -508,6 +495,7 @@ impl<T> BlockingQueue<T>
 where
     T: Send + 'static + Clone,
 {
+    /// **`for_futures` only:** non-blocking poll on the shared thread pool.
     pub async fn poll_result_as_future(&mut self) -> Result<T, Box<dyn Error + Send>> {
         let mut queue = self.clone();
 
@@ -523,6 +511,7 @@ where
             Err(e) => Err(Box::new(e)),
         }
     }
+    /// **`for_futures` only:** blocking take on the shared thread pool.
     pub async fn take_result_as_future(&mut self) -> Result<T, Box<dyn Error + Send>> {
         let mut queue = self.clone();
 
@@ -568,8 +557,6 @@ async fn test_sync_future() {
         h.start();
         println!("test_sync_future hh2 running");
     }
-    std::thread::sleep(Duration::from_millis(1));
-
     pub1.publish(1);
     println!("test_sync_future pub1.publish");
     pub1.publish(2);
@@ -581,6 +568,229 @@ async fn test_sync_future() {
 
     let _ = latch.await;
     println!("test_sync_future done");
+}
+
+#[cfg(test)]
+#[cfg(feature = "for_futures")]
+mod sync_future_tests {
+    use super::*;
+    use futures::executor::block_on;
+    use futures::future::join;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    const TEST_DEADLINE: Duration = Duration::from_secs(5);
+
+    fn block_on_with_deadline<F, T>(future: F, deadline: Duration) -> T
+    where
+        F: Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let (tx, rx) = mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let result = block_on(future);
+            let _ = tx.send(result);
+        });
+        let end = Instant::now() + deadline;
+        loop {
+            match rx.try_recv() {
+                Ok(value) => return value,
+                Err(mpsc::TryRecvError::Empty) => {
+                    assert!(
+                        Instant::now() < end,
+                        "async test timed out after {:?}",
+                        deadline
+                    );
+                    std::thread::yield_now();
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    panic!("async worker thread panicked or dropped the result sender");
+                }
+            }
+        }
+    }
+
+    #[futures_test::test]
+    async fn test_will_async_multi_waker() {
+        let mut wa = WillAsync::new(|| 99);
+        let wa1 = wa.clone();
+        let wa2 = wa.clone();
+
+        let (tx, rx) = mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let joined = block_on(join(wa1, wa2));
+            let _ = tx.send(joined);
+        });
+
+        for _ in 0..64 {
+            std::thread::yield_now();
+        }
+        wa.start();
+
+        let (r1, r2) = {
+            let end = Instant::now() + TEST_DEADLINE;
+            loop {
+                match rx.try_recv() {
+                    Ok(value) => break value,
+                    Err(mpsc::TryRecvError::Empty) => {
+                        assert!(Instant::now() < end, "WillAsync multi-waker test timed out");
+                        std::thread::yield_now();
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        panic!("WillAsync multi-waker worker thread failed");
+                    }
+                }
+            }
+        };
+
+        assert_eq!(Some(99), r1);
+        assert_eq!(Some(99), r2);
+    }
+
+    #[futures_test::test]
+    async fn test_will_async_poll_before_start() {
+        let mut wa = WillAsync::new(|| 7);
+        let noop = futures::task::noop_waker();
+        let mut cx = Context::from_waker(&noop);
+        assert!(matches!(Pin::new(&mut wa).poll(&mut cx), Poll::Pending));
+
+        wa.start();
+
+        let result = block_on_with_deadline(wa, TEST_DEADLINE);
+        assert_eq!(Some(7), result);
+    }
+
+    #[futures_test::test]
+    async fn test_countdownlatch_multi_waker() {
+        let latch = CountDownLatch::new(2);
+        let latch1 = latch.clone();
+        let latch2 = latch.clone();
+
+        let (tx, rx) = mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let joined = block_on(join(latch1, latch2));
+            let _ = tx.send(joined);
+        });
+
+        for _ in 0..64 {
+            std::thread::yield_now();
+        }
+
+        std::thread::spawn(move || {
+            latch.countdown();
+            latch.countdown();
+        });
+
+        let ((), ()) = {
+            let end = Instant::now() + TEST_DEADLINE;
+            loop {
+                match rx.try_recv() {
+                    Ok(value) => break value,
+                    Err(mpsc::TryRecvError::Empty) => {
+                        assert!(
+                            Instant::now() < end,
+                            "CountDownLatch multi-waker test timed out"
+                        );
+                        std::thread::yield_now();
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        panic!("CountDownLatch multi-waker worker thread failed");
+                    }
+                }
+            }
+        };
+    }
+
+    #[futures_test::test]
+    async fn test_countdownlatch_poll_edges() {
+        let latch = CountDownLatch::new(1);
+        let mut latch_for_poll = latch.clone();
+        let noop = futures::task::noop_waker();
+        let mut cx = Context::from_waker(&noop);
+
+        assert!(matches!(
+            Pin::new(&mut latch_for_poll).poll(&mut cx),
+            Poll::Pending
+        ));
+
+        latch.countdown();
+
+        assert!(matches!(
+            Pin::new(&mut latch_for_poll).poll(&mut cx),
+            Poll::Ready(())
+        ));
+    }
+
+    #[futures_test::test]
+    async fn test_blocking_queue_take_result_as_future_ok() {
+        let mut queue = BlockingQueue::<i32>::new();
+        queue.offer(42);
+
+        let result = block_on_with_deadline(
+            async move { queue.take_result_as_future().await },
+            TEST_DEADLINE,
+        );
+        assert!(matches!(result, Ok(42)));
+    }
+
+    #[futures_test::test]
+    async fn test_blocking_queue_take_result_as_future_empty_timeout_err() {
+        let mut queue = BlockingQueue::<i32>::new();
+        queue.timeout = Some(Duration::from_millis(50));
+
+        let result = block_on_with_deadline(
+            async move { queue.take_result_as_future().await },
+            TEST_DEADLINE,
+        );
+        assert!(result.is_err());
+    }
+
+    #[futures_test::test]
+    async fn test_blocking_queue_take_result_as_future_stopped_err() {
+        let mut queue = BlockingQueue::<i32>::new();
+        queue.stop();
+
+        let result = block_on_with_deadline(
+            async move { queue.take_result_as_future().await },
+            TEST_DEADLINE,
+        );
+        assert!(result.is_err());
+    }
+
+    #[futures_test::test]
+    async fn test_blocking_queue_poll_result_as_future_ok() {
+        let mut queue = BlockingQueue::<&'static str>::new();
+        queue.offer("value");
+
+        let result = block_on_with_deadline(
+            async move { queue.poll_result_as_future().await },
+            TEST_DEADLINE,
+        );
+        assert!(matches!(result, Ok("value")));
+    }
+
+    #[futures_test::test]
+    async fn test_blocking_queue_poll_result_as_future_empty_err() {
+        let mut queue = BlockingQueue::<i32>::new();
+
+        let result = block_on_with_deadline(
+            async move { queue.poll_result_as_future().await },
+            TEST_DEADLINE,
+        );
+        assert!(result.is_err());
+    }
+
+    #[futures_test::test]
+    async fn test_blocking_queue_poll_result_as_future_stopped_err() {
+        let mut queue = BlockingQueue::<i32>::new();
+        queue.stop();
+
+        let result = block_on_with_deadline(
+            async move { queue.poll_result_as_future().await },
+            TEST_DEADLINE,
+        );
+        assert!(result.is_err());
+    }
 }
 
 #[test]

@@ -1,36 +1,28 @@
-/*!
-In this module there're implementations & tests of `Maybe`.
-*/
+//! Optional values with fantasy-land style `map`, `chain`, and `ap` helpers.
+//!
+//! [`Maybe`] wraps `Option<T>` in a cloneable, shared container.
 
 use std::sync::Arc;
 
-/**
-`Maybe` wraps built-in `Option<T>`,
-and implements `Applicative` and `Chain` of `fantasy-land`.
-
-# Arguments
-
-* `T` - The generic type of data
-
-# Remarks
-
-It implements `Applicative` and `Chain` of `fantasy-land`,
-and use the same interface as `fpEs` & `fpGo`(sister libraries :P)
-
-``
-*/
+/// Optional value with fantasy-land style combinators.
+///
+/// Wraps `Option<T>` in an `Arc` so clones share state. The API mirrors
+/// sister libraries (`fpEs`, `fpGo`) with `map`, `chain`, and `ap`.
 #[derive(Clone)]
 pub struct Maybe<T> {
     r: Arc<Option<T>>,
 }
 
 impl<T: Clone + 'static> Maybe<T> {
+    /// Returns an owned clone of the inner `Option<T>`.
     pub fn option(&self) -> Option<T> {
         self.r.as_ref().clone()
     }
+    /// Returns the inner value, panicking when absent.
     pub fn unwrap(&self) -> T {
         self.r.as_ref().clone().unwrap()
     }
+    /// Returns the inner value, or `val` when absent.
     pub fn or(&self, val: T) -> T {
         self.r.as_ref().clone().unwrap_or(val)
     }
@@ -43,44 +35,77 @@ impl<T: 'static> From<T> for Maybe<T> {
 }
 
 impl<T: 'static> Maybe<T> {
+    /// Wraps `r` in a new `Maybe`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fp_rust::maybe::Maybe;
+    ///
+    /// assert_eq!(Some(5), Maybe::just(Some(5)).option());
+    /// assert_eq!(None, Maybe::just(None::<i32>).option());
+    /// ```
     pub fn just(r: Option<T>) -> Maybe<T> {
         Maybe { r: Arc::new(r) }
     }
+    /// Alias for [`Maybe::just`].
     pub fn of(r: Option<T>) -> Maybe<T> {
         Maybe::just(r)
     }
+    /// Constructs a present `Maybe` from `r`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fp_rust::maybe::Maybe;
+    ///
+    /// assert_eq!(Some(42), Maybe::val(42).option());
+    /// ```
     pub fn val(r: T) -> Maybe<T> {
         Maybe::just(Some(r))
     }
 
+    /// Returns `true` when a value is present.
     pub fn present(&self) -> bool {
         match self.r.as_ref() {
             Some(_x) => true,
             None => false,
         }
     }
+    /// Returns `true` when no value is present.
     pub fn null(&self) -> bool {
         match self.r.as_ref() {
             Some(_x) => false,
             None => true,
         }
     }
+    /// Runs `func` with the inner value when present; no-op on `None`.
     pub fn let_do<F>(&self, func: F)
     where
         F: FnOnce(&T),
     {
-        match self.r.as_ref() {
-            Some(_x) => func(&_x),
-            None => (),
+        if let Some(_x) = self.r.as_ref() {
+            func(_x)
         }
     }
 
+    /// Functor map that receives the inner `Option` and returns another `Maybe`.
     pub fn fmap<F, G>(&self, func: F) -> Maybe<G>
     where
         F: FnOnce(&Option<T>) -> Maybe<G>,
     {
         func(self.r.as_ref())
     }
+    /// Maps the inner `Option` with `func`, re-wrapping the result.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fp_rust::maybe::Maybe;
+    ///
+    /// let doubled = Maybe::val(4).map(|x| Some(x.unwrap() * 2));
+    /// assert_eq!(Some(8), doubled.option());
+    /// ```
     pub fn map<F, G>(&self, func: F) -> Maybe<G>
     where
         F: FnOnce(&Option<T>) -> Option<G>,
@@ -88,6 +113,7 @@ impl<T: 'static> Maybe<T> {
     {
         Maybe::just(func(self.r.as_ref()))
     }
+    /// Monadic bind; equivalent to [`Maybe::map`].
     pub fn bind<F, G>(&self, func: F) -> Maybe<G>
     where
         F: FnOnce(&Option<T>) -> Option<G>,
@@ -95,6 +121,7 @@ impl<T: 'static> Maybe<T> {
     {
         self.map(func)
     }
+    /// Alias for [`Maybe::map`].
     pub fn then<F, G>(&self, func: F) -> Maybe<G>
     where
         F: FnOnce(&Option<T>) -> Option<G>,
@@ -102,12 +129,24 @@ impl<T: 'static> Maybe<T> {
     {
         self.map(func)
     }
+    /// Chains with a function returning `Maybe`; delegates to [`Maybe::fmap`].
     pub fn chain<F, G>(&self, func: F) -> Maybe<G>
     where
         F: FnOnce(&Option<T>) -> Maybe<G>,
     {
         self.fmap(func)
     }
+    /// Applicative apply: applies the function inside `maybe_func` to this value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fp_rust::maybe::Maybe;
+    ///
+    /// let value = Maybe::val(5);
+    /// let wrapped_fn = Maybe::val(|x: &Option<i32>| Some(x.unwrap() * 10));
+    /// assert_eq!(Some(50), value.ap(&wrapped_fn).option());
+    /// ```
     pub fn ap<F, G>(&self, maybe_func: &Maybe<F>) -> Maybe<G>
     where
         F: FnOnce(&Option<T>) -> Option<G> + Clone + 'static,
@@ -142,33 +181,23 @@ fn test_maybe_present() {
 fn test_maybe_flatmap() {
     assert_eq!(
         false,
-        Maybe::val(true)
-            .fmap(|x| return Maybe::val(!x.unwrap()))
-            .unwrap()
+        Maybe::val(true).fmap(|x| Maybe::val(!x.unwrap())).unwrap()
     );
     assert_eq!(
         true,
-        Maybe::val(false)
-            .fmap(|x| return Maybe::val(!x.unwrap()))
-            .unwrap()
+        Maybe::val(false).fmap(|x| Maybe::val(!x.unwrap())).unwrap()
     );
 
-    assert_eq!(
-        false,
-        Maybe::val(true).map(|x| return Some(!x.unwrap())).unwrap()
-    );
-    assert_eq!(
-        true,
-        Maybe::val(false).map(|x| return Some(!x.unwrap())).unwrap()
-    );
+    assert_eq!(false, Maybe::val(true).map(|x| Some(!x.unwrap())).unwrap());
+    assert_eq!(true, Maybe::val(false).map(|x| Some(!x.unwrap())).unwrap());
 
     assert_eq!(
         true,
         Maybe::val(1)
             .ap(&Maybe::val(|x: &Option<i16>| if x.unwrap() > 0 {
-                return Some(true);
+                Some(true)
             } else {
-                return Some(false);
+                Some(false)
             }))
             .unwrap()
     );
@@ -209,10 +238,7 @@ fn test_maybe_constructors() {
     assert_eq!(Some(5), Maybe::val(5).option());
     assert_eq!(None, Maybe::just(None::<i32>).option());
     // of is an alias of just.
-    assert_eq!(
-        Maybe::just(Some(7)).option(),
-        Maybe::of(Some(7)).option()
-    );
+    assert_eq!(Maybe::just(Some(7)).option(), Maybe::of(Some(7)).option());
 }
 
 #[test]

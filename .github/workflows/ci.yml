@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: Test (stable)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test
+        run: cargo test
+      - name: cargo test (test_runtime)
+        run: cargo test --features=test_runtime
+      - name: cargo test --doc (test_runtime)
+        run: cargo test --doc --features=test_runtime
+      - name: cargo test --examples (test_runtime)
+        run: cargo test --examples --features=test_runtime
+
+  clippy:
+    name: Clippy (stable)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo clippy
+        run: ./clippy.sh
+
+  fmt:
+    name: Rustfmt (stable)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+
+  doc:
+    name: Docs (stable)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo doc
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --features=test_runtime
+
+  msrv:
+    # Validates the rust-version declared in Cargo.toml (1.56). MSRV is CI-verified, not locally.
+    name: MSRV (1.56)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.56
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo build
+        run: cargo build
+      - name: cargo build (test_runtime)
+        run: cargo build --features=test_runtime
+
+  features:
+    name: Feature matrix (${{ matrix.features }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - --no-default-features
+          - "--no-default-features --features fp"
+          - "--features sync"
+          - "--features for_futures"
+          - --all-features
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo build
+        run: cargo build ${{ matrix.features }}

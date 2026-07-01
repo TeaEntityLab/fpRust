@@ -1,6 +1,12 @@
-/*!
-In this module, there're implementations & tests of `Publisher`
-*/
+//! Pub/sub `Publisher` built on [`Observable`].
+//!
+//! Available with Cargo feature `publisher` (enabled by `pure`; depends on `sync` and `handler`).
+//!
+//! # Features
+//!
+//! * Default: notify subscribers synchronously on the `publish` caller thread.
+//! * `subscribe_on(Some(handler))`: post notifications to a `Handler` thread.
+//! * `for_futures`: stream helpers via `LinkedListAsync` (`subscribe_as_stream`, etc.).
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
@@ -11,20 +17,11 @@ use super::common::{Observable, RawFunc, Subscription, SubscriptionFunc, UniqueI
 use super::handler::Handler;
 use super::sync::{BlockingQueue, Queue};
 
-/**
-The `Publisher` implements *PubSub-like* features.
-
-# Arguments
-
-* `X` - The generic type of yielded/yielding data
-* `T` - In order to pass compilations, `T` must be `SubscriptionFunc<X>` (for instantiation)
-
-# Remarks
-
-It could be sync or async up to your usages,
-and it could be mapped just as Rx-like APIs.
-
-*/
+/// Multi-subscriber event bus with optional handler-thread delivery.
+///
+/// # Type parameter
+///
+/// * `X` — payload type (published as `Arc<X>` to subscribers)
 #[derive(Clone)]
 pub struct Publisher<X> {
     // observers: Vec<Arc<dyn Subscription<X>>>,
@@ -46,15 +43,18 @@ impl<X> Default for Publisher<X> {
 }
 
 impl<X> Publisher<X> {
+    /// Empty publisher with no subscribers.
     pub fn new() -> Publisher<X> {
         Default::default()
     }
+    /// Create a publisher that delivers on `h` when `Some`.
     pub fn new_with_handlers(h: Option<Arc<Mutex<dyn Handler + 'static>>>) -> Publisher<X> {
         let mut new_one = Publisher::new();
         new_one.subscribe_on(h);
         new_one
     }
 
+    /// Set the handler used by `notify_observers` (`Handler::post` when `Some`).
     pub fn subscribe_on(&mut self, h: Option<Arc<Mutex<dyn Handler + 'static>>>) {
         self.sub_handler = h;
     }
@@ -63,20 +63,24 @@ impl<X> Publisher<X>
 where
     X: Send + Sync + 'static,
 {
+    /// Notify all subscribers with `val`.
     pub fn publish(&mut self, val: X) {
         self.notify_observers(Arc::new(val));
     }
 
+    /// Register `s` and return the same handle for later `unsubscribe`.
     pub fn subscribe(&mut self, s: Arc<SubscriptionFunc<X>>) -> Arc<SubscriptionFunc<X>> {
         self.add_observer(s.clone());
         s
     }
+    /// Subscribe with a plain callback; returns the `SubscriptionFunc` handle.
     pub fn subscribe_fn(
         &mut self,
         func: impl FnMut(Arc<X>) + Send + Sync + 'static,
     ) -> Arc<SubscriptionFunc<X>> {
         self.subscribe(Arc::new(SubscriptionFunc::new(func)))
     }
+    /// Side-effect `map`: runs `func` on each publish (return value is discarded).
     pub fn map<Z: Send + Sync + 'static>(
         &mut self,
         func: impl FnMut(Arc<X>) -> Z + Send + Sync + 'static,
@@ -86,10 +90,12 @@ where
             (_func.lock().unwrap())(x);
         })
     }
+    /// Remove a subscription by handle.
     pub fn unsubscribe(&mut self, s: Arc<SubscriptionFunc<X>>) {
         self.delete_observer(s);
     }
 
+    /// Push each published `Arc<X>` into `queue` (`put`).
     pub fn subscribe_blocking_queue(
         &mut self,
         queue: &BlockingQueue<Arc<X>>,
@@ -97,6 +103,7 @@ where
         let mut queue_new = queue.clone();
         self.subscribe_fn(move |v| queue_new.put(v))
     }
+    /// Subscribe a fresh `BlockingQueue` and return `(subscription, queue)`.
     pub fn as_blocking_queue(&mut self) -> (Arc<SubscriptionFunc<X>>, BlockingQueue<Arc<X>>) {
         let queue = BlockingQueue::new();
         let subscription = self.subscribe_blocking_queue(&queue);
@@ -105,17 +112,41 @@ where
     }
 }
 
+/// Stream adapters (`for_futures` only).
 #[cfg(feature = "for_futures")]
 impl<X: Send + Sync + 'static + Unpin> Publisher<X> {
+    /// Attach `s` and expose its `LinkedListAsync` stream.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fp_rust::publisher::Publisher;
+    /// use fp_rust::common::SubscriptionFunc;
+    /// use futures::executor::block_on;
+    /// use futures::StreamExt;
+    /// use std::sync::Arc;
+    ///
+    /// let mut pub1 = Publisher::new();
+    /// let mut stream = pub1.subscribe_as_stream(Arc::new(SubscriptionFunc::new(|_x| {})));
+    ///
+    /// pub1.publish(1);
+    /// pub1.publish(2);
+    /// stream.close_stream(); // let `collect` terminate
+    ///
+    /// let got = block_on(stream.collect::<Vec<_>>());
+    /// assert_eq!(vec![Arc::new(1), Arc::new(2)], got);
+    /// ```
     pub fn subscribe_as_stream(&mut self, s: Arc<SubscriptionFunc<X>>) -> LinkedListAsync<Arc<X>> {
         self.subscribe(s).as_ref().clone().as_stream()
     }
+    /// Subscribe `func` and return the linked-list stream.
     pub fn subscribe_fn_as_stream(
         &mut self,
         func: impl FnMut(Arc<X>) + Send + Sync + 'static,
     ) -> LinkedListAsync<Arc<X>> {
         self.subscribe_fn(func).as_ref().clone().as_stream()
     }
+    /// Anonymous subscription with a stream view.
     pub fn as_stream(&mut self) -> LinkedListAsync<Arc<X>> {
         self.subscribe_fn_as_stream(|_| {})
     }
@@ -145,7 +176,7 @@ impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<
     fn notify_observers(&mut self, val: Arc<X>) {
         let observers = self.observers.clone();
         let mut _do_sub = Arc::new(move || {
-            for (_, observer) in observers.iter().enumerate() {
+            for observer in observers.iter() {
                 {
                     observer.on_next(val.clone());
                 }
@@ -205,7 +236,7 @@ async fn test_publisher_stream() {
             println!("test_publisher_stream {:?}: {:?}", n, "Before");
             let item = result.next().await;
             if let Some(result) = item.clone() {
-                (&mut got_list).push(result.clone());
+                got_list.push(result.clone());
             }
             println!("test_publisher_stream {:?}: {:?}", n, item);
         }
@@ -240,8 +271,6 @@ async fn test_publisher_stream() {
             s2.close_stream();
         }));
     }
-
-    std::thread::sleep(std::time::Duration::from_millis(1));
 
     got_list = s.clone().collect::<Vec<_>>().await;
     assert_eq!(
@@ -511,7 +540,7 @@ fn test_publisher_default_has_no_observers() {
     // A default Publisher with no subscribers simply drops published values.
     let mut p: Publisher<i32> = Default::default();
     p.publish(1); // no panic, no observers
-    // Adding one afterwards works as normal.
+                  // Adding one afterwards works as normal.
     let queue = BlockingQueue::<Arc<i32>>::new();
     p.subscribe_blocking_queue(&queue);
     p.publish(2);

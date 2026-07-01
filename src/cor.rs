@@ -1,6 +1,23 @@
-/*!
-In this module there're implementations & tests of `Cor`.
-*/
+//! Python-style generator coroutines with `yield` / `yield_from` between `Cor` values.
+//!
+//! Available with Cargo feature `cor` (enabled by `pure`).
+//!
+//! # Sync vs async
+//!
+//! `Cor` defaults to `set_async(true)` (runs the effect on a spawned thread). With
+//! `set_async(false)`, the effect runs on the thread that calls `Cor::start`.
+//!
+//! # Deadlock warning
+//!
+//! Two or more coroutines that **both** run synchronously and wait on each other via
+//! `yield_from` can deadlock. Keep at least one participant async, or make exactly one
+//! sync coroutine the **entry point** that drives the others. The `do_m!` macro forces
+//! sync mode for its outer block — see its docs before composing nested yields.
+//!
+//! # Shutdown
+//!
+//! Cooperative `stop` clears `alive` and closes channels; there is no thread join.
+//! Graceful shutdown redesign is **deferred** (same class of limitation as `Handler` / `Actor`).
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc::{channel, Receiver, Sender},
@@ -8,15 +25,11 @@ use std::sync::{
 };
 use std::thread;
 
-/**
-Run codes inside a `doM` block(`Haskell` `do notation`)
-(this is a `sync` macro)
-
-# Arguments
-
-* `func` - The given `FnMut`, the execution code of `Cor`.
-
-*/
+/// Run `func` inside a sync (`set_async(false)`) coroutine and start it immediately.
+///
+/// **Deadlock:** the outer coroutine is sync; nested `yield_from` to other sync
+/// coroutines that wait back can deadlock unless one side stays async or is the sole
+/// entry driver.
 #[macro_export]
 macro_rules! do_m {
     ($this:expr) => {{
@@ -31,10 +44,9 @@ macro_rules! do_m {
     }};
 }
 
-/**
-Run codes inside a `doM` block(`Haskell` `do notation`)
-(this is a `sync` macro)
-*/
+/// Pattern-matching `do` notation for coroutine composition (outer coroutine is sync).
+///
+/// See [`do_m!`] for the same sync/deadlock caveats.
 #[macro_export]
 macro_rules! do_m_pattern {
     (
@@ -98,17 +110,12 @@ macro_rules! do_m_pattern {
     });
 }
 
-/**
-Define a new `Cor` with type.
-It will return a `Arc<Mutex<Cor>>`.
-
-# Arguments
-
-* `func` - The given `FnMut`, the execution code of `Cor`.
-* `RETURN` - The type of returned data
-* `RECEIVE` - The type of received data
-
-*/
+/// Create `Arc<Mutex<Cor<RETURN, RECEIVE>>>` without starting it.
+///
+/// # Arguments
+///
+/// * `func` — effect body
+/// * `RETURN` / `RECEIVE` — yield payload types
 #[macro_export]
 macro_rules! cor_newmutex {
     ($func:expr, $RETURN:ty, $RECEIVE:ty) => {
@@ -116,17 +123,7 @@ macro_rules! cor_newmutex {
     };
 }
 
-/**
-Define a new `Cor` with type and start it immediately.
-It will return a `Arc<Mutex<Cor>>`.
-
-# Arguments
-
-* `func` - The given `FnMut`, the execution code of `Cor`.
-* `RETURN` - The type of returned data
-* `RECEIVE` - The type of received data
-
-*/
+/// `cor_newmutex!` followed by `cor_start!`.
 #[macro_export]
 macro_rules! cor_newmutex_and_start {
     ($func:expr, $RETURN:ty, $RECEIVE:ty) => {{
@@ -136,21 +133,7 @@ macro_rules! cor_newmutex_and_start {
     }};
 }
 
-/**
-Make `this` returns a given `Option<RETURN>` `given_to_outside` to its callee `Cor`,
-and this method returns the `Option<RECEIVE>` value given from outside.
-
-# Arguments
-
-* `this` - The sender when sending `given_to_outside` to callee `Cor`.
-* `given_to_outside` - The value sent by `this` and received by `target`.
-
-# Remarks
-
-This method is implemented according to some coroutine/generator implementations,
-such as `Python`, `Lua`, `ECMASript`...etc.
-
-*/
+/// Yield a value outward and receive the caller's next input (generator-style).
 #[macro_export]
 macro_rules! cor_yield {
     ($this:expr, $given_to_outside:expr) => {
@@ -158,22 +141,7 @@ macro_rules! cor_yield {
     };
 }
 
-/**
-Make `this` sends a given `Option<RECEIVETARGET>` to `target`,
-and this method returns the `Option<RETURNTARGET>` response from `target`.
-
-# Arguments
-
-* `this` - The sender when sending `sent_to_inside` to `target`.
-* `target` - The receiver of value `sent_to_inside` sent by `this`.
-* `sent_to_inside` - The value sent by `this` and received by `target`.
-
-# Remarks
-
-This method is implemented according to some coroutine/generator implementations,
-such as `Python`, `Lua`, `ECMASript`...etc.
-
-*/
+/// Delegate to `target` and return its yield result (`yield from` semantics).
 #[macro_export]
 macro_rules! cor_yield_from {
     ($this:expr, $target:expr, $sent_to_inside:expr) => {
@@ -181,17 +149,9 @@ macro_rules! cor_yield_from {
     };
 }
 
-/**
-
-Start `this` `Cor`.
-
-# Arguments
-
-* `this` - The target `Cor` to start.
-
-*NOTE*: Beware the deadlock if it's sync(waiting for each other), except the entry point.
-
-*/
+/// Start `this` (`Cor::start`).
+///
+/// Sync coroutines that mutually `yield_from` can deadlock unless one is the entry driver.
 #[macro_export]
 macro_rules! cor_start {
     ($this:expr) => {
@@ -199,23 +159,11 @@ macro_rules! cor_start {
     };
 }
 
-/**
-`CorOp` defines a yield action between `Cor` objects.
-
-# Arguments
-
-* `RETURN` - The generic type of returned data
-* `RECEIVE` - The generic type of received data
-
-# Remarks
-
-It's the base of implementations of `Cor`.
-It contains the `Cor` calling `yield_from`() and the val sent together,
-and it's necessary to the target `Cor` making the response by `yield_ref`()/`yield_none`().
-
-*/
+/// Internal yield request queued for a target coroutine (`yield_from` plumbing).
 pub struct CorOp<RETURN: 'static, RECEIVE: 'static> {
+    /// Channel used to send the target's `yield_ref` response back to the caller.
     pub result_ch_sender: Arc<Mutex<Sender<Option<RETURN>>>>,
+    /// Value forwarded into the target coroutine.
     pub val: Option<RECEIVE>,
 }
 impl<RETURN, RECEIVE> CorOp<RETURN, RECEIVE> {}
@@ -223,23 +171,9 @@ impl<RETURN, RECEIVE> CorOp<RETURN, RECEIVE> {}
 type CorEffect<RETURN, RECEIVE> =
     dyn FnMut(Arc<Mutex<Cor<RETURN, RECEIVE>>>) + Send + Sync + 'static;
 
-/**
-The `Cor` implements a *PythonicGenerator-like Coroutine*.
-
-# Arguments
-
-* `RETURN` - The generic type of returned data
-* `RECEIVE` - The generic type of received data
-
-# Remarks
-
-It could be sync or async up to your usages,
-and it could use `yield_from` to send a value to another `Cor` object and get the response,
-and use `yield_ref`()/`yield_none`() to return my response to the callee of mine.
-
-*NOTE*: Beware the deadlock if it's sync(waiting for each other), except the entry point.
-
-*/
+/// Generator-like coroutine with typed yield in/out channels.
+///
+/// Use [`cor_yield!`], [`cor_yield_from!`], and [`cor_start!`] from user code.
 #[derive(Clone)]
 pub struct Cor<RETURN: 'static, RECEIVE: 'static> {
     is_async: bool,
@@ -251,14 +185,7 @@ pub struct Cor<RETURN: 'static, RECEIVE: 'static> {
     effect: Arc<Mutex<CorEffect<RETURN, RECEIVE>>>,
 }
 impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, RECEIVE> {
-    /**
-    Generate a new `Cor` with the given `FnMut` function for the execution of this `Cor`.
-
-    # Arguments
-
-    * `effect` - The given `FnMut`, the execution code of `Cor`.
-
-    */
+    /// Create a coroutine; default `is_async` is `true`.
     pub fn new(
         effect: impl FnMut(Arc<Mutex<Cor<RETURN, RECEIVE>>>) + Send + Sync + 'static,
     ) -> Cor<RETURN, RECEIVE> {
@@ -273,36 +200,14 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
         }
     }
 
-    /**
-    Generate a new `Arc<Mutex<Cor<RETURN, RECEIVE>>>` with the given `FnMut` function for the execution of this `Cor`.
-
-    # Arguments
-
-    * `effect` - The given `FnMut`, the execution code of `Cor`.
-
-    */
+    /// `Arc<Mutex<Cor>>` wrapper around [`Cor::new`].
     pub fn new_with_mutex(
         effect: impl FnMut(Arc<Mutex<Cor<RETURN, RECEIVE>>>) + Send + Sync + 'static,
     ) -> Arc<Mutex<Cor<RETURN, RECEIVE>>> {
         Arc::new(Mutex::new(<Cor<RETURN, RECEIVE>>::new(effect)))
     }
 
-    /**
-    Make `this` sends a given `Option<RECEIVETARGET>` to `target`,
-    and this method returns the `Option<RETURNTARGET>` response from `target`.
-
-    # Arguments
-
-    * `this` - The sender when sending `sent_to_inside` to `target`.
-    * `target` - The receiver of value `sent_to_inside` sent by `this`.
-    * `sent_to_inside` - The value sent by `this` and received by `target`.
-
-    # Remarks
-
-    This method is implemented according to some coroutine/generator implementations,
-    such as `Python`, `Lua`, `ECMASript`...etc.
-
-    */
+    /// `yield_from` implementation; returns `None` if `this` or `target` is not alive.
     pub fn yield_from<RETURNTARGET: Send + Sync + 'static, RECEIVETARGET: Send + Sync + 'static>(
         this: Arc<Mutex<Cor<RETURN, RECEIVE>>>,
         target: Arc<Mutex<Cor<RETURNTARGET, RECEIVETARGET>>>,
@@ -351,39 +256,12 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
         None
     }
 
-    /**
-    Make `this` returns a given `None::<RETURN>` to its callee `Cor`,
-    and this method returns the `Option<RECEIVE>` value given from outside.
-
-    # Arguments
-
-    * `this` - The sender when sending `given_to_outside` to callee `Cor`.
-
-    # Remarks
-
-    This method is implemented according to some coroutine/generator implementations,
-    such as `Python`, `Lua`, `ECMASript`...etc.
-
-    */
+    /// Yield `None` outward.
     pub fn yield_none(this: Arc<Mutex<Cor<RETURN, RECEIVE>>>) -> Option<RECEIVE> {
         Cor::yield_ref(this, None)
     }
 
-    /**
-    Make `this` returns a given `Option<RETURN>` `given_to_outside` to its callee `Cor`,
-    and this method returns the `Option<RECEIVE>` value given from outside.
-
-    # Arguments
-
-    * `this` - The sender when sending `given_to_outside` to callee `Cor`.
-    * `given_to_outside` - The value sent by `this` and received by `target`.
-
-    # Remarks
-
-    This method is implemented according to some coroutine/generator implementations,
-    such as `Python`, `Lua`, `ECMASript`...etc.
-
-    */
+    /// Yield `given_to_outside` and block for the caller's next value (sync path can deadlock).
     pub fn yield_ref(
         this: Arc<Mutex<Cor<RETURN, RECEIVE>>>,
         given_to_outside: Option<RETURN>,
@@ -414,17 +292,10 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
         None
     }
 
-    /**
-
-    Start `this` `Cor`.
-
-    # Arguments
-
-    * `this` - The target `Cor` to start.
-
-    *NOTE*: Beware the deadlock if it's sync(waiting for each other), except the entry point.
-
-    */
+    /// Start the effect (spawned thread when `is_async`, inline when sync).
+    ///
+    /// **Sync deadlock:** mutual `yield_from` between sync coroutines deadlocks unless
+    /// exactly one coroutine is the entry driver; prefer async for nested participants.
     pub fn start(this: Arc<Mutex<Cor<RETURN, RECEIVE>>>) {
         let is_async;
 
@@ -464,51 +335,30 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
         }
     }
 
-    /**
-    Setup async or not.
-    Default `async`: `true`
-
-    # Arguments
-
-    * `async` - async when `true`, otherwise `sync`.
-
-    *NOTE*: Beware the deadlock if it's sync(waiting for each other), except the entry point.
-
-    */
+    /// `true` (default): run effect on a new thread; `false`: run on `start`'s thread.
+    ///
+    /// Sync mode is safe for a lone entry coroutine; risky when paired with other sync waiters.
     pub fn set_async(&mut self, is_async: bool) {
         self.is_async = is_async;
     }
 
-    /**
-    Did this `Cor` start?
-    Return `true` when it did started (no matter it has stopped or not)
-
-    */
+    /// `true` after `start` (stays `true` after `stop`).
     pub fn is_started(&self) -> bool {
         let started_alive = self.started_alive.lock().unwrap();
         let (started, _) = &*started_alive;
         started.load(Ordering::SeqCst)
     }
 
-    /**
-    Is this `Cor` alive?
-    Return `true` when it has started and not stopped yet.
-
-    */
+    /// `true` while the effect has not yet called `stop`.
     pub fn is_alive(&self) -> bool {
         let started_alive = self.started_alive.lock().unwrap();
         let (_, alive) = &*started_alive;
         alive.load(Ordering::SeqCst)
     }
 
-    /**
-
-    Stop `Cor`.
-    This will make self.`is_alive`() returns `false`,
-    and all `yield_from`() from this `Cor` as `target` will return `None::<RETURN>`.
-    (Because it has stopped :P, that's reasonable)
-
-    */
+    /// Cooperative stop: `yield_from` targeting this coroutine returns `None`.
+    ///
+    /// Does not join an async worker thread; shutdown redesign is deferred.
     pub fn stop(&mut self) {
         {
             let started_alive = self.started_alive.lock().unwrap();
@@ -666,15 +516,21 @@ fn test_cor_do_m_pattern() {
 
 #[test]
 fn test_cor_new() {
-    use std::time;
+    use std::sync::{Arc, Mutex};
 
     println!("test_cor_new");
 
+    let cor1_received = Arc::new(Mutex::new(None::<i16>));
+    let cor1_received_t = cor1_received.clone();
+    let cor2_received = Arc::new(Mutex::new(None::<String>));
+    let cor2_received_t = cor2_received.clone();
+
     let _cor1 = cor_newmutex!(
-        |this| {
+        move |this| {
             println!("cor1 started");
 
             let s = cor_yield!(this, Some(String::from("given_to_outside")));
+            *cor1_received_t.lock().unwrap() = s;
             println!("cor1 {:?}", s);
         },
         String,
@@ -689,6 +545,7 @@ fn test_cor_new() {
             println!("cor2 yield_from before");
 
             let s = cor_yield_from!(this, cor1, Some(3));
+            *cor2_received_t.lock().unwrap() = s.clone();
             println!("cor2 {:?}", s);
         },
         i16,
@@ -708,7 +565,13 @@ fn test_cor_new() {
     cor_start!(_cor1);
     cor_start!(_cor2);
 
-    thread::sleep(time::Duration::from_millis(1));
+    assert_eq!(
+        Some(String::from("given_to_outside")),
+        cor2_received.lock().unwrap().clone()
+    );
+    assert_eq!(Some(3), *cor1_received.lock().unwrap());
+    assert_eq!(true, _cor2.lock().unwrap().is_started());
+    assert_eq!(false, _cor2.lock().unwrap().is_alive());
 }
 
 #[test]

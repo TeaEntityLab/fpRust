@@ -1,15 +1,15 @@
-/*!
-In this module, there're many `trait`s/`struct`s and `fn`s defined,
-for general purposes crossing over many modules of `fpRust`.
-*/
+//! Shared traits, structs, and helpers used across `fp_rust` modules.
+//!
+//! Includes observer/pub-sub primitives, thread-safe queues, ID generation,
+//! and small utilities such as [`get_mut`] and the `map_insert!` macro.
 
 use std::cmp::PartialEq;
 use std::collections::LinkedList;
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(feature = "for_futures")]
 use futures::executor::ThreadPool;
@@ -27,17 +27,24 @@ use std::task::{Context, Poll, Waker};
 // pub trait FnMutReceiveThreadSafe<X>: FnMut(Arc<X>) + Send + Sync + 'static {}
 // pub trait FnMutReturnThreadSafe<X>: FnMut() -> X + Send + Sync + 'static {}
 
+/// Handle to the process-wide shared [`ThreadPool`].
+///
+/// Clones share the same underlying pool. Obtain one via [`shared_thread_pool`].
 #[cfg(feature = "for_futures")]
 #[derive(Clone)]
 pub struct SharedThreadPoolReader {
     // Since we will be used in many threads, we need to protect
     // concurrent access
+    /// Shared executor protected by a mutex for concurrent access.
     pub inner: Arc<Mutex<ThreadPool>>,
 }
+
+/// Returns a clone of the lazily initialized process-wide thread pool.
 #[cfg(feature = "for_futures")]
 pub fn shared_thread_pool() -> SharedThreadPoolReader {
     // Initialize it to a null value
-    static mut SINGLETON: *const SharedThreadPoolReader = 0 as *const SharedThreadPoolReader;
+    static mut SINGLETON: *const SharedThreadPoolReader =
+        std::ptr::null::<SharedThreadPoolReader>();
     static ONCE: Once = Once::new();
 
     unsafe {
@@ -50,7 +57,7 @@ pub fn shared_thread_pool() -> SharedThreadPoolReader {
             };
 
             // Put it in the heap so it can outlive this call
-            SINGLETON = mem::transmute(Box::new(singleton));
+            SINGLETON = mem::transmute::<Box<SharedThreadPoolReader>, *const SharedThreadPoolReader>(Box::new(singleton));
         });
 
         // Now we give out a copy of the data that is safe to use concurrently.
@@ -107,21 +114,22 @@ macro_rules! map_insert {
     };
 }
 
-/**
-Get a mut ref of a specific element of a Vec<T>.
-
-# Arguments
-
-* `v` - The mut ref of the `Vec<T>`
-* `index` - The index of the element
-
-# Remarks
-
-This is a convenience function that gets the `mut ref` of an element of the `Vec`.
-
-*/
-pub fn get_mut<'a, T>(v: &'a mut Vec<T>, index: usize) -> Option<&'a mut T> {
-    for (i, elem) in v.into_iter().enumerate() {
+/// Returns a mutable reference to the element at `index` in `v`, if in range.
+///
+/// # Examples
+///
+/// ```
+/// use fp_rust::common::get_mut;
+///
+/// let mut v = vec![10, 20, 30];
+/// if let Some(elem) = get_mut(&mut v, 1) {
+///     *elem = 99;
+/// }
+/// assert_eq!(vec![10, 99, 30], v);
+/// assert_eq!(None, get_mut(&mut v, 5));
+/// ```
+pub fn get_mut<T>(v: &mut Vec<T>, index: usize) -> Option<&mut T> {
+    for (i, elem) in v.iter_mut().enumerate() {
         if index == i {
             return Some(elem);
         }
@@ -130,6 +138,10 @@ pub fn get_mut<'a, T>(v: &'a mut Vec<T>, index: usize) -> Option<&'a mut T> {
     None
 }
 
+/// Thread-safe FIFO queue backed by a [`LinkedList`].
+///
+/// Clones share the same underlying list (`Arc<Mutex<..>>`). With the
+/// `for_futures` feature, the type also implements [`Stream`].
 #[derive(Debug, Clone)]
 pub struct LinkedListAsync<T> {
     inner: Arc<Mutex<LinkedList<T>>>,
@@ -143,6 +155,7 @@ pub struct LinkedListAsync<T> {
 }
 
 impl<T> LinkedListAsync<T> {
+    /// Creates an empty queue.
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(LinkedList::new())),
@@ -156,6 +169,7 @@ impl<T> LinkedListAsync<T> {
         }
     }
 
+    /// Appends `input` to the back of the queue.
     pub fn push_back(&self, input: T) {
         #[cfg(feature = "for_futures")]
         {
@@ -167,8 +181,6 @@ impl<T> LinkedListAsync<T> {
 
                 self.wake();
             }
-
-            return;
         }
 
         #[cfg(not(feature = "for_futures"))]
@@ -177,6 +189,7 @@ impl<T> LinkedListAsync<T> {
         }
     }
 
+    /// Removes and returns the front element, or `None` when empty.
     pub fn pop_front(&self) -> Option<T> {
         self.inner.lock().unwrap().pop_front()
     }
@@ -195,6 +208,7 @@ impl<T> LinkedListAsync<T> {
         self.alive.lock().unwrap().store(true, Ordering::SeqCst);
     }
 
+    /// Marks the stream finished; [`Stream::poll_next`] will eventually return `None`.
     #[cfg(feature = "for_futures")]
     pub fn close_stream(&mut self) {
         {
@@ -218,11 +232,10 @@ where
         let alive = self.alive.lock().unwrap();
         let mut waker = self.waker.lock().unwrap();
 
-        let picked: Option<T>;
         // {
         //     picked = self.pop_front();
         // }
-        picked = self.pop_front();
+        let picked: Option<T> = self.pop_front();
         if picked.is_some() {
             return Poll::Ready(picked);
         }
@@ -243,7 +256,7 @@ where
             // }
             // return Poll::Ready(picked);
         }
-        return Poll::Ready(None);
+        Poll::Ready(None)
     }
 }
 
@@ -265,7 +278,8 @@ impl<T> Default for LinkedListAsync<Arc<T>> {
 
 This is an implementation of Observer Pattern of GoF.
 
-*NOTE*: Inspired by and modified from https://github.com/eliovir/rust-examples/blob/master/design_pattern-observer.rs
+*NOTE*: Inspired by and modified from
+<https://github.com/eliovir/rust-examples/blob/master/design_pattern-observer.rs>.
 */
 pub trait Observable<X, T: Subscription<X>> {
     /**
@@ -347,6 +361,10 @@ pub trait UniqueId<T> {
 
 static ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+/// Generates a process-unique string identifier.
+///
+/// Combines thread id, wall-clock time, and a monotonic counter so that
+/// back-to-back calls on the same thread still produce distinct values.
 pub fn generate_id() -> String {
     let since_the_epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -376,6 +394,7 @@ It's enough to use for general cases of `Subscription`.
 // #[derive(Clone)]
 pub struct SubscriptionFunc<T> {
     id: String,
+    /// Callback invoked when [`Subscription::on_next`] receives a value.
     pub receiver: RawReceiver<T>,
 
     #[cfg(feature = "for_futures")]
@@ -387,6 +406,7 @@ impl<T> SubscriptionFunc<T> {
         generate_id()
     }
 
+    /// Creates a subscription that forwards values to `func`.
     pub fn new(func: impl FnMut(Arc<T>) + Send + Sync + 'static) -> SubscriptionFunc<T> {
         SubscriptionFunc {
             id: Self::generate_id(),
@@ -415,6 +435,7 @@ impl<T> Clone for SubscriptionFunc<T> {
 
 #[cfg(feature = "for_futures")]
 impl<T> SubscriptionFunc<T> {
+    /// Stops buffering further values on the internal async stream.
     pub fn close_stream(&mut self) {
         self.cached.close_stream();
     }
@@ -429,6 +450,7 @@ where
         self.cached.open_stream();
     }
 
+    /// Returns a clone of the internal queue as an open [`Stream`].
     pub fn as_stream(&mut self) -> LinkedListAsync<Arc<T>> {
         self.open_stream();
 

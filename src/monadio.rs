@@ -1,7 +1,13 @@
-/*!
-In this module there're implementations & tests of `MonadIO`.
-It's inspired by `Rx` & `MonadIO` in `Haskell`
-*/
+//! Rx- / monad-inspired `MonadIO`: lazy effects, `map` / `fmap`, and subscription.
+//!
+//! Available with Cargo feature `monadio` (enabled by `pure`; depends on `sync` and `handler`).
+//!
+//! # Async (`for_futures`)
+//!
+//! With `for_futures` (as in `test_runtime`), `to_future` runs `eval` on the shared
+//! thread pool. `observe_on` / `subscribe_on` route work through `Handler` threads;
+//! README snippets that use `thread::sleep` after `start` are **demo timing only** —
+//! prefer `CountDownLatch`, callbacks, or `to_future` for synchronization in production code.
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "for_futures")]
@@ -17,23 +23,11 @@ use super::sync::CountDownLatch;
 
 use super::common::{RawFunc, Subscription, SubscriptionFunc};
 
-/**
-`MonadIO` implements basic `Rx`/`MonadIO` APIs.
-The `observe` and `subscribe` actions could be sync/async,
-and `observe` & `subscribe` could be on other `thread`s
-(by setting up `observe_on` and `subscribe_on`).
-
-# Arguments
-
-* `Y` - The generic type of data
-
-# Remarks
-
-It's inspired by `Rx` & `MonadIO` in `Haskell`
-, and easily run it on sync/async scenaios.
-
-``
-*/
+/// Lazy effect container with optional observe/subscribe handler routing.
+///
+/// # Type parameter
+///
+/// * `Y` — value produced when the effect runs
 #[derive(Clone)]
 pub struct MonadIO<Y> {
     effect: Arc<Mutex<dyn FnMut() -> Y + Send + Sync + 'static>>,
@@ -41,6 +35,7 @@ pub struct MonadIO<Y> {
     sub_handler: Option<Arc<Mutex<dyn Handler>>>,
 }
 
+/// Wrap a value in a `FnMut` closure (used by `MonadIO::just`).
 pub fn of<Z: 'static + Send + Sync + Clone>(r: Z) -> impl FnMut() -> Z + Send + Sync + 'static {
     let _r = Box::new(r);
 
@@ -54,11 +49,24 @@ impl<Y: 'static + Send + Sync + Clone> From<Y> for MonadIO<Y> {
 }
 
 impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
+    /// Lift a pure value into `MonadIO`.
     pub fn just(r: Y) -> MonadIO<Y> {
         MonadIO::new(of(r))
     }
 
     #[cfg(feature = "for_futures")]
+    /// Run `eval` on the shared futures thread pool (`for_futures` only).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fp_rust::monadio::MonadIO;
+    /// use futures::executor::block_on;
+    /// use std::sync::Arc;
+    ///
+    /// let doubled = block_on(MonadIO::just(3).map(|i| i * 2).to_future());
+    /// assert_eq!(Arc::new(6), doubled.ok().unwrap());
+    /// ```
     pub async fn to_future(&self) -> Result<Arc<Y>, Box<dyn Error>> {
         // let mio = self.map(|y| y);
         let mio = self.clone();
@@ -75,10 +83,12 @@ impl<Y: 'static + Send + Sync + Clone> MonadIO<Y> {
 }
 
 impl<Y: 'static + Send + Sync> MonadIO<Y> {
+    /// Create a `MonadIO` from an effect closure.
     pub fn new(effect: impl FnMut() -> Y + Send + Sync + 'static) -> MonadIO<Y> {
         MonadIO::new_with_handlers(effect, None, None)
     }
 
+    /// Create with optional observe and subscribe `Handler` targets.
     pub fn new_with_handlers(
         effect: impl FnMut() -> Y + Send + Sync + 'static,
         ob: Option<Arc<Mutex<dyn Handler + 'static>>>,
@@ -91,14 +101,17 @@ impl<Y: 'static + Send + Sync> MonadIO<Y> {
         }
     }
 
+    /// Run the observe/subscribe pipeline on `h` when set (`Handler::post`).
     pub fn observe_on(&mut self, h: Option<Arc<Mutex<dyn Handler + 'static>>>) {
         self.ob_handler = h;
     }
 
+    /// Deliver `on_next` on `h` when set; otherwise notify on the caller thread.
     pub fn subscribe_on(&mut self, h: Option<Arc<Mutex<dyn Handler + 'static>>>) {
         self.sub_handler = h;
     }
 
+    /// Functor map over the produced value.
     pub fn map<Z: 'static + Send + Sync + Clone>(
         &self,
         func: impl FnMut(Y) -> Z + Send + Sync + 'static,
@@ -112,6 +125,7 @@ impl<Y: 'static + Send + Sync> MonadIO<Y> {
             self.sub_handler.clone(),
         )
     }
+    /// Monadic bind flattened into a single `MonadIO`.
     pub fn fmap<Z: 'static + Send + Sync + Clone>(
         &self,
         func: impl FnMut(Y) -> MonadIO<Z> + Send + Sync + 'static,
@@ -120,6 +134,7 @@ impl<Y: 'static + Send + Sync> MonadIO<Y> {
 
         self.map(move |y: Y| ((_func.lock().unwrap())(y).effect.lock().unwrap())())
     }
+    /// Run the effect and notify `s` (respecting observe/subscribe handlers).
     pub fn subscribe(&self, s: Arc<impl Subscription<Y>>) {
         let mut _effect = self.effect.clone();
 
@@ -147,10 +162,12 @@ impl<Y: 'static + Send + Sync> MonadIO<Y> {
             }
         }
     }
+    /// `subscribe` with a plain `FnMut` callback.
     pub fn subscribe_fn(&self, func: impl FnMut(Arc<Y>) + Send + Sync + 'static) {
         self.subscribe(Arc::new(SubscriptionFunc::new(func)))
     }
 
+    /// Run the effect once and block until a subscriber captures the result.
     pub fn eval(&self) -> Arc<Y> {
         let latch = CountDownLatch::new(1);
         let latch_thread = latch.clone();
@@ -193,7 +210,6 @@ fn test_monadio_new() {
     use super::common::SubscriptionFunc;
     use super::handler::HandlerThread;
     use std::sync::Arc;
-    use std::{thread, time};
 
     use super::sync::CountDownLatch;
 
@@ -236,8 +252,6 @@ fn test_monadio_new() {
     let latch = CountDownLatch::new(1);
     let latch2 = latch.clone();
 
-    thread::sleep(time::Duration::from_millis(1));
-
     let subscription = Arc::new(SubscriptionFunc::new(move |x: Arc<String>| {
         println!("monadio_async {:?}", x); // monadio_async ok
 
@@ -262,7 +276,6 @@ fn test_monadio_new() {
         handler_observe_on.post(RawFunc::new(move || {}));
         handler_observe_on.post(RawFunc::new(move || {}));
     }
-    thread::sleep(time::Duration::from_millis(1));
 
     // Waiting for being unlcoked
     latch.clone().wait();
@@ -280,7 +293,10 @@ fn test_monadio_of_returns_value() {
 fn test_monadio_just_eval() {
     // just + eval round-trips the value synchronously (no handlers).
     assert_eq!(Arc::new(3), MonadIO::just(3).eval());
-    assert_eq!(Arc::new(String::from("x")), MonadIO::just(String::from("x")).eval());
+    assert_eq!(
+        Arc::new(String::from("x")),
+        MonadIO::just(String::from("x")).eval()
+    );
 }
 
 #[test]

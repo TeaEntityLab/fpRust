@@ -1,7 +1,17 @@
-/*!
-In this module there're implementations & tests of `Handler`.
-(Inspired by `Android Handler`)
-*/
+//! Single-threaded job queue inspired by Android `Handler` / `HandlerThread`.
+//!
+//! # Crate features
+//!
+//! Requires the **`handler`** feature (enabled by default `pure`). Depends on
+//! **`sync`** ([`BlockingQueue`](crate::sync::BlockingQueue)).
+//!
+//! # Shutdown behavior
+//!
+//! [`Handler::stop`] and [`HandlerThread::stop`] clear the alive flag and stop
+//! accepting new work. They do **not** [`join`](std::thread::JoinHandle::join) the
+//! worker thread and do **not** interrupt a job already blocked inside
+//! [`BlockingQueue::take`](crate::sync::BlockingQueue::take). Thread join-based
+//! shutdown is intentionally commented out and remains a deferred design item.
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -12,66 +22,27 @@ use super::common::RawFunc;
 use super::sync as fpSync;
 use super::sync::Queue;
 
-/**
-`Handler` `trait` defines the interface which could receive `FnMut` and run them on its own `thread`.
-
-# Remarks
-
-This is highly inspired by `Android Handler` concepts.
-
-*/
+/// Runs posted [`RawFunc`] jobs sequentially on a dedicated thread.
 pub trait Handler: Send + Sync + 'static {
-    /**
-    Did this `Handler` start?
-    Return `true` when it did started (no matter it has stopped or not)
-
-    */
+    /// `true` after [`start`](Handler::start), even if [`stop`](Handler::stop) ran.
     fn is_started(&mut self) -> bool;
 
-    /**
-    Is this `Handler` alive?
-    Return `true` when it has started and not stopped yet.
-    */
+    /// `true` while the worker loop may still execute jobs.
     fn is_alive(&mut self) -> bool;
 
-    /**
-    Start `Handler`.
-    */
+    /// Starts (or resumes) the worker loop.
     fn start(&mut self);
 
-    /**
-
-    Stop `Cor`.
-    This will make self.`is_alive`() returns `false`,
-    and all `FnMut` posted by self.`post`() will not be executed.
-    (Because it has stopped :P, that's reasonable)
-
-    */
+    /// Stops accepting new jobs. Does not join the worker thread or interrupt a
+    /// blocked [`take`](crate::sync::BlockingQueue::take) inside the loop.
     fn stop(&mut self);
 
-    /**
-    Post a job which will run on this `Handler`.
-
-    # Arguments
-
-    * `func` - The posted job.
-    ``
-    */
+    /// Enqueues `func` for FIFO execution on the handler thread.
     fn post(&mut self, func: RawFunc);
 }
 
-/**
-`HandlerThread` could receive `FnMut` and run them on its own `thread`.
-It implements `Handler` `trait` simply and works well.
-
-This is kind of facade which just handles `thread`,
-and bypasses jobs to `HandlerThreadInner`(private implementations).
-
-# Remarks
-
-This is highly inspired by `Android Handler` concepts.
-
-*/
+/// [`Handler`] facade: spawns a thread whose inner loop drains a
+/// [`BlockingQueue`](crate::sync::BlockingQueue) of [`RawFunc`] jobs.
 #[derive(Clone)]
 pub struct HandlerThread {
     started_alive: Arc<Mutex<(AtomicBool, AtomicBool)>>,
@@ -93,9 +64,11 @@ impl Default for HandlerThread {
 }
 
 impl HandlerThread {
+    /// Creates a handler that has not been started.
     pub fn new() -> HandlerThread {
         Default::default()
     }
+    /// Wraps the handler for sharing across threads (typical for `Publisher` / `Will`).
     pub fn new_with_mutex() -> Arc<Mutex<HandlerThread>> {
         Arc::new(Mutex::new(HandlerThread::new()))
     }
@@ -233,7 +206,6 @@ impl Handler for HandlerThreadInner {
 #[test]
 fn test_handler_new() {
     use super::sync::CountDownLatch;
-    use std::time;
 
     let mut _h = HandlerThread::new_with_mutex();
     let mut h = _h.lock().unwrap();
@@ -275,13 +247,10 @@ fn test_handler_new() {
     }));
     println!("Test");
 
-    thread::sleep(time::Duration::from_millis(1));
-
     assert_eq!(true, h.is_alive());
     assert_eq!(true, h.is_started());
 
     h.stop();
-    thread::sleep(time::Duration::from_millis(1));
 
     assert_eq!(false, h.is_alive());
     assert_eq!(true, h.is_started());

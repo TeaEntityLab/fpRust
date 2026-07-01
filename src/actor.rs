@@ -1,6 +1,17 @@
-/*!
-In this module there're implementations & tests of `Actor`.
-*/
+//! Message-passing actors with optional parent/child handles.
+//!
+//! # Crate features
+//!
+//! Requires **`actor`** (implies **`sync`**). Built on
+//! [`BlockingQueue`] mailboxes.
+//!
+//! # Shutdown behavior
+//!
+//! [`ActorAsync::stop`] sets the alive flag only. The consumer thread is **not**
+//! joined; commented-out [`join`](std::thread::JoinHandle::join) code shows
+//! join-based shutdown was deferred. A thread blocked in [`take`](crate::sync::BlockingQueue::take)
+//! is not interrupted. README/examples that use `thread::sleep` after `stop` are
+//! demo synchronization only—not a supported shutdown contract.
 
 use std::collections::HashMap;
 use std::sync::{
@@ -12,40 +23,38 @@ use std::thread;
 use super::common::{generate_id, UniqueId};
 use super::sync::{BlockingQueue, Queue};
 
-/**
-`Actor` defines concepts of `Actor`: Send/Receive Messages, States, Methods.
-
-# Arguments
-
-* `Msg` - The generic type of Message data
-* `ContextValue` - The generic type of ContextValue
-
-# Remarks
-
-It defines simple and practical hehaviors of `Actor` model.
-
-``
-*/
+/// Actor model: mailbox delivery, shared context, and child spawning.
+///
+/// `HandleType` is typically [`HandleAsync`]; `Functor` is the child initializer.
 pub trait Actor<Msg, ContextValue, HandleType, Functor>: UniqueId<String> {
+    /// Dispatches one message (usually delegates to the user `effect`).
     fn receive(
         &mut self,
         this: &mut Self,
         message: Msg,
         context: &mut HashMap<String, ContextValue>,
     );
+    /// Spawns a child actor and returns a handle to its mailbox.
     fn spawn_with_handle(&self, func: Functor) -> HandleType;
 
+    /// Handle pointing at this actor's mailbox.
     fn get_handle(&self) -> HandleType;
+    /// Lookup a child handle by id string.
     fn get_handle_child(&self, name: impl Into<String>) -> Option<HandleType>;
+    /// Parent handle, if any.
     fn get_handle_parent(&self) -> Option<HandleType>;
 
+    /// Iterates registered child handles.
     fn for_each_child(&self, func: impl FnMut(&String, &mut HandleType));
 }
 
+/// Send-only mailbox endpoint for actor messages.
 pub trait Handle<Msg>: UniqueId<String> {
+    /// Enqueues a message (non-blocking [`offer`](crate::sync::BlockingQueue::offer)).
     fn send(&mut self, message: Msg);
 }
 
+/// [`Handle`] backed by a shared [`BlockingQueue`].
 #[derive(Debug, Clone)]
 pub struct HandleAsync<Msg>
 where
@@ -72,7 +81,9 @@ where
     }
 }
 
-// #[derive(Clone)]
+/// Default [`Actor`] implementation: one thread draining a mailbox.
+///
+/// Cloning shares mailboxes and lifecycle atomics; use [`ActorAsync::get_handle`] for senders.
 pub struct ActorAsync<Msg, ContextValue>
 where
     Msg: Send + 'static,
@@ -120,6 +131,7 @@ impl<Msg, ContextValue> ActorAsync<Msg, ContextValue>
 where
     Msg: Send + 'static,
 {
+    /// Root actor with a fresh mailbox and empty context.
     pub fn new(
         effect: impl FnMut(&mut ActorAsync<Msg, ContextValue>, Msg, &mut HashMap<String, ContextValue>)
             + Send
@@ -129,6 +141,7 @@ where
         Self::new_with_options(effect, None, BlockingQueue::new())
     }
 
+    /// Actor with explicit parent link and mailbox (used for children).
     pub fn new_with_options(
         effect: impl FnMut(&mut ActorAsync<Msg, ContextValue>, Msg, &mut HashMap<String, ContextValue>)
             + Send
@@ -149,18 +162,21 @@ where
         }
     }
 
+    /// See [`ActorAsync`] module docs for lifecycle semantics.
     pub fn is_started(&mut self) -> bool {
         let started_alive = self.started_alive.lock().unwrap();
         let (started, _) = &*started_alive;
         started.load(Ordering::SeqCst)
     }
 
+    /// `true` while the mailbox thread may still run.
     pub fn is_alive(&mut self) -> bool {
         let started_alive = self.started_alive.lock().unwrap();
         let (_, alive) = &*started_alive;
         alive.load(Ordering::SeqCst)
     }
 
+    /// Clears alive flag only; does not join the mailbox thread (see module docs).
     pub fn stop(&mut self) {
         {
             let started_alive = self.started_alive.lock().unwrap();
@@ -189,6 +205,8 @@ where
     Msg: Clone + Send + 'static,
     ContextValue: Send + 'static,
 {
+    /// Spawns the mailbox consumer thread (idempotent if already started+alive).
+    /// Start the mailbox loop on a background thread (idempotent).
     pub fn start(&mut self) {
         {
             let started_alive = self.started_alive.lock().unwrap();
@@ -261,6 +279,7 @@ where
     Msg: Clone + Send + 'static,
     ContextValue: Send + 'static,
 {
+    /// Dispatch `message` to the user `effect` with the shared context map.
     fn receive(
         &mut self,
         this: &mut Self,
@@ -271,6 +290,7 @@ where
             self.effect.lock().unwrap()(this, message, context);
         }
     }
+    /// Spawn a child actor, register its handle, and `start` it immediately.
     fn spawn_with_handle(
         &self,
         func: Box<
@@ -289,8 +309,9 @@ where
                 .insert(new_one.get_id(), new_one.get_handle());
         }
         new_one.start();
-        return new_one.get_handle();
+        new_one.get_handle()
     }
+    /// Handle that shares this actor's id and mailbox.
     fn get_handle(&self) -> HandleAsync<Msg> {
         HandleAsync {
             id: self.id.clone(),
@@ -298,13 +319,14 @@ where
         }
     }
     fn get_handle_child(&self, name: impl Into<String>) -> Option<HandleAsync<Msg>> {
-        match self.children_handle_map.lock().unwrap().get(&name.into()) {
-            Some(v) => Some(v.clone()),
-            None => None,
-        }
+        self.children_handle_map
+            .lock()
+            .unwrap()
+            .get(&name.into())
+            .cloned()
     }
     fn get_handle_parent(&self) -> Option<HandleAsync<Msg>> {
-        return self.parent_handle.clone();
+        self.parent_handle.clone()
     }
 
     fn for_each_child(&self, mut func: impl FnMut(&String, &mut HandleAsync<Msg>)) {
@@ -631,14 +653,12 @@ fn test_actor_spawn_child_and_forward() {
             Msg::Spawn => {
                 let sink_child = sink_root.clone();
                 let latch_child = latch_root.clone();
-                this.spawn_with_handle(Box::new(
-                    move |_this: &mut ActorAsync<_, _>, m: Msg, _| {
-                        if let Msg::Forward(v) = m {
-                            sink_child.push_back(v * 10);
-                            latch_child.countdown();
-                        }
-                    },
-                ));
+                this.spawn_with_handle(Box::new(move |_this: &mut ActorAsync<_, _>, m: Msg, _| {
+                    if let Msg::Forward(v) = m {
+                        sink_child.push_back(v * 10);
+                        latch_child.countdown();
+                    }
+                }));
             }
             Msg::Forward(v) => {
                 // Spawn is processed before Forward (FIFO), so the child exists.

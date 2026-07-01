@@ -3,8 +3,9 @@ name = "fp_rust"
 version = "0.3.5"
 license = "MIT"
 authors = ["JunYi JohnTeee Lee <johnteee@gmail.com>"]
-edition = "2018"
-include = ["src/**/*.rs", "Cargo.toml"]
+edition = "2021"
+rust-version = "1.56"
+include = ["src/**/*.rs", "Cargo.toml", "LICENSE", "README.md"]
 readme = "README.md"
 description = "Implement fp features for Rust"
 documentation = "https://docs.rs/fp_rust/"
@@ -13,7 +14,7 @@ repository = "https://github.com/TeaEntityLab/fpRust"
 keywords = ["functional","rx","monad","optional","pubsub"]
 
 [badges.maintenance]
-status = "actively-developed"
+status = "passively-maintained"
 
 [lib]
 name = "fp_rust"
@@ -25,7 +26,6 @@ default = [
   # "for_futures",
 ]
 for_futures = [ "futures", "futures-test" ]
-# for_futures = [ "futures", "tokio" ]
 pure = [
   "fp",
   "maybe",
@@ -49,6 +49,5 @@ publisher = [ "sync", "handler" ]
 test_runtime = [ "pure", "for_futures" ]
 
 [dependencies]
-# tokio = { version = "^1.9.0", features = ["full"], optional = true }
 futures = { version = "0.3", default-features = false, features = ["thread-pool"], optional = true }
 futures-test = { version = "0.3", optional = true }
