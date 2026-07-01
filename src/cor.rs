@@ -329,13 +329,18 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
                     .receive(_result_ch_sender.clone(), sent_to_inside);
             }
 
+            // Drop our own sender reference BEFORE waiting. If the target was
+            // not alive, receive() dropped its clone without queueing a CorOp,
+            // so this closes the channel and recv() returns Err (-> None)
+            // instead of blocking forever. If the target is alive, the queued
+            // CorOp still holds a sender clone, so recv() correctly waits for
+            // the target's yield_ref to respond.
+            drop(_result_ch_sender);
+
             let result;
             {
                 let result_ch_receiver = _result_ch_receiver.lock().unwrap();
                 result = result_ch_receiver.recv();
-            }
-            {
-                drop(_result_ch_sender.lock().unwrap());
             }
 
             if let Ok(_x) = result {
@@ -428,7 +433,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
             is_async = me.is_async;
 
             let started_alive = me.started_alive.lock().unwrap();
-            let &(ref started, ref alive) = &*started_alive;
+            let (started, alive) = &*started_alive;
             if started.load(Ordering::SeqCst) {
                 return;
             }
@@ -481,7 +486,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
     */
     pub fn is_started(&self) -> bool {
         let started_alive = self.started_alive.lock().unwrap();
-        let &(ref started, _) = &*started_alive;
+        let (started, _) = &*started_alive;
         started.load(Ordering::SeqCst)
     }
 
@@ -492,7 +497,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
     */
     pub fn is_alive(&self) -> bool {
         let started_alive = self.started_alive.lock().unwrap();
-        let &(_, ref alive) = &*started_alive;
+        let (_, alive) = &*started_alive;
         alive.load(Ordering::SeqCst)
     }
 
@@ -507,7 +512,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
     pub fn stop(&mut self) {
         {
             let started_alive = self.started_alive.lock().unwrap();
-            let &(ref started, ref alive) = &*started_alive;
+            let (started, alive) = &*started_alive;
 
             if !started.load(Ordering::SeqCst) {
                 return;
@@ -531,7 +536,7 @@ impl<RETURN: Send + Sync + 'static, RECEIVE: Send + Sync + 'static> Cor<RETURN, 
         // do_close_safe
         // if !self.is_alive() {
         let started_alive = self.started_alive.lock().unwrap();
-        let &(_, ref alive) = &*started_alive;
+        let (_, alive) = &*started_alive;
         if !alive.load(Ordering::SeqCst) {
             return;
         }
@@ -814,4 +819,93 @@ fn test_cor_do_m_two_inner_sequence() {
     q.timeout = Some(Duration::from_secs(5));
     assert_eq!(Some(String::from("A")), q.take());
     assert_eq!(Some(String::from("B")), q.take());
+}
+
+#[test]
+fn test_cor_sync_lifecycle_states() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    // A sync `Cor` whose effect performs no yield runs inline on `start()`:
+    // `is_started` flips true, the effect runs, then it stops (`is_alive` false).
+    let ran = Arc::new(AtomicBool::new(false));
+    let ran_effect = ran.clone();
+
+    let mut c = Cor::<i16, i16>::new(move |_this| {
+        ran_effect.store(true, Ordering::SeqCst);
+    });
+    c.set_async(false);
+
+    // A clone shares the `started_alive` state, so it can probe before & after.
+    let probe = c.clone();
+    assert_eq!(false, probe.is_started());
+    assert_eq!(false, probe.is_alive());
+
+    Cor::start(Arc::new(Mutex::new(c)));
+
+    assert_eq!(true, ran.load(Ordering::SeqCst));
+    assert_eq!(true, probe.is_started());
+    assert_eq!(false, probe.is_alive());
+}
+
+#[test]
+fn test_cor_start_is_idempotent() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    // `start()` on an already-started `Cor` returns early without re-running the effect.
+    let count = Arc::new(AtomicUsize::new(0));
+    let count_effect = count.clone();
+
+    let mut c = Cor::<i16, i16>::new(move |_this| {
+        count_effect.fetch_add(1, Ordering::SeqCst);
+    });
+    c.set_async(false);
+
+    let cor = Arc::new(Mutex::new(c));
+    Cor::start(cor.clone());
+    Cor::start(cor.clone());
+
+    assert_eq!(1, count.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_cor_yield_from_dead_target_returns_none() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::{thread, time};
+
+    // Yielding to a target that is not alive (never started / already
+    // finished) must return None (StopIteration-like), NOT hang forever.
+    // Regression: receive() silently drops the request when the target is
+    // dead, yet yield_from held its own sender alive across recv(), so recv()
+    // blocked forever. The fix drops the sender before recv() so the channel
+    // disconnects -> recv() errors -> None.
+    let target = Cor::<i16, i16>::new_with_mutex(|_| {});
+    // target is never started -> not alive.
+
+    let done = Arc::new(AtomicBool::new(false));
+    let result = Arc::new(Mutex::new(Some(999_i16)));
+    let done_effect = done.clone();
+    let result_effect = result.clone();
+    let target_effect = target.clone();
+
+    let this = Cor::<i16, i16>::new_with_mutex(move |this| {
+        // `this` is alive here (its effect is running).
+        let r = Cor::yield_from(this.clone(), target_effect.clone(), Some(1));
+        *result_effect.lock().unwrap() = r;
+        done_effect.store(true, Ordering::SeqCst);
+    });
+    Cor::start(this.clone());
+
+    // Bounded wait: with the fix this completes near-instantly; if it hangs
+    // (the bug) the deadline elapses and we fail deterministically instead of
+    // stalling the whole suite. The 5s ceiling only bounds a genuine hang.
+    let deadline = time::Instant::now() + time::Duration::from_secs(5);
+    while !done.load(Ordering::SeqCst) && time::Instant::now() < deadline {
+        thread::yield_now();
+    }
+
+    assert_eq!(true, done.load(Ordering::SeqCst));
+    assert_eq!(None, *result.lock().unwrap());
 }

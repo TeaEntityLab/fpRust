@@ -153,7 +153,7 @@ impl<X: Send + Sync + 'static> Observable<X, SubscriptionFunc<X>> for Publisher<
         });
 
         match &mut self.sub_handler {
-            Some(ref mut sub_handler) => {
+            Some(sub_handler) => {
                 sub_handler.lock().unwrap().post(RawFunc::new(move || {
                     let sub = Arc::make_mut(&mut _do_sub);
 
@@ -386,6 +386,43 @@ fn test_publisher_unsubscribe_stops_delivery() {
     p.unsubscribe(s);
     p.publish(2); // not delivered
     assert_eq!(1, count.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_publisher_unsubscribe_removes_correct_observer() {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::Arc;
+
+    use super::common::SubscriptionFunc;
+
+    // Two subscriptions constructed back-to-back (same tick). Before
+    // generate_id gained a monotonic counter their ids collided, so
+    // delete_observer matched by id and removed the FIRST equal id (a),
+    // not the one requested (b). Separate counters detect which survived.
+    let count_a = Arc::new(AtomicI32::new(0));
+    let count_b = Arc::new(AtomicI32::new(0));
+    let ca = count_a.clone();
+    let cb = count_b.clone();
+
+    let mut p = Publisher::new();
+    let a = Arc::new(SubscriptionFunc::new(move |_x: Arc<i32>| {
+        ca.fetch_add(1, Ordering::SeqCst);
+    }));
+    let b = Arc::new(SubscriptionFunc::new(move |_x: Arc<i32>| {
+        cb.fetch_add(1, Ordering::SeqCst);
+    }));
+    p.subscribe(a.clone());
+    p.subscribe(b.clone());
+
+    p.publish(1); // both fire
+    assert_eq!(1, count_a.load(Ordering::SeqCst));
+    assert_eq!(1, count_b.load(Ordering::SeqCst));
+
+    p.unsubscribe(b); // must remove b, keep a
+    p.publish(2);
+    // a still subscribed -> fires again; b gone -> unchanged.
+    assert_eq!(2, count_a.load(Ordering::SeqCst));
+    assert_eq!(1, count_b.load(Ordering::SeqCst));
 }
 
 #[test]

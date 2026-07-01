@@ -151,20 +151,20 @@ where
 
     pub fn is_started(&mut self) -> bool {
         let started_alive = self.started_alive.lock().unwrap();
-        let &(ref started, _) = &*started_alive;
+        let (started, _) = &*started_alive;
         started.load(Ordering::SeqCst)
     }
 
     pub fn is_alive(&mut self) -> bool {
         let started_alive = self.started_alive.lock().unwrap();
-        let &(_, ref alive) = &*started_alive;
+        let (_, alive) = &*started_alive;
         alive.load(Ordering::SeqCst)
     }
 
     pub fn stop(&mut self) {
         {
             let started_alive = self.started_alive.lock().unwrap();
-            let &(ref started, ref alive) = &*started_alive;
+            let (started, alive) = &*started_alive;
 
             if !started.load(Ordering::SeqCst) {
                 return;
@@ -174,7 +174,6 @@ where
             }
             alive.store(false, Ordering::SeqCst);
         }
-
         // NOTE: Kill thread <- OS depending
         // let mut join_handle = self.join_handle.lock().unwrap();
         // join_handle
@@ -193,7 +192,7 @@ where
     pub fn start(&mut self) {
         {
             let started_alive = self.started_alive.lock().unwrap();
-            let &(ref started, ref alive) = &*started_alive;
+            let (started, alive) = &*started_alive;
 
             if started.load(Ordering::SeqCst) {
                 return;
@@ -212,7 +211,7 @@ where
         self.join_handle = Arc::new(Mutex::new(Some(thread::spawn(move || {
             while {
                 let started_alive = started_alive_thread.lock().unwrap();
-                let &(_, ref alive) = &*started_alive;
+                let (_, alive) = &*started_alive;
 
                 alive.load(Ordering::SeqCst)
             } {
@@ -225,7 +224,7 @@ where
                     }
                     None => {
                         let started_alive = started_alive_thread.lock().unwrap();
-                        let &(_, ref alive) = &*started_alive;
+                        let (_, alive) = &*started_alive;
 
                         alive.store(false, Ordering::SeqCst);
                     }
@@ -317,7 +316,7 @@ where
 
 #[test]
 fn test_actor_common() {
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use super::common::LinkedListAsync;
 
@@ -407,15 +406,32 @@ fn test_actor_common() {
     // Send Shutdown
     root_handle.send(Value::Shutdown);
 
-    thread::sleep(Duration::from_millis(10));
+    // result_string receives the children-ids vec once the root handles Shutdown;
+    // the 3 child actors push 6 ints across their own threads. Wait deterministically
+    // rather than racing a fixed sleep (the 5s ceilings only bound a genuine hang).
+    let ids_deadline = Instant::now() + Duration::from_secs(5);
+    let ids = loop {
+        if let Some(v) = result_string.pop_front() {
+            break Some(v);
+        }
+        if Instant::now() >= ids_deadline {
+            break None;
+        }
+        thread::yield_now();
+    };
     // 3 children Actors
-    assert_eq!(3, result_string.pop_front().unwrap().len());
+    assert_eq!(Some(3), ids.map(|ids| ids.len()));
 
     let mut v = Vec::<Option<i32>>::new();
-    for _ in 1..7 {
-        let i = result_i32.pop_front();
-        println!("Actor {:?}", i);
-        v.push(i);
+    let v_deadline = Instant::now() + Duration::from_secs(5);
+    while v.len() < 6 {
+        if let Some(i) = result_i32.pop_front() {
+            v.push(Some(i));
+        } else if Instant::now() >= v_deadline {
+            break;
+        } else {
+            thread::yield_now();
+        }
     }
     v.sort();
     assert_eq!(
@@ -433,7 +449,7 @@ fn test_actor_common() {
 
 #[test]
 fn test_actor_ask() {
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use super::common::LinkedListAsync;
 
@@ -466,37 +482,47 @@ fn test_actor_ask() {
     let mut root_handle = root.get_handle();
     root.start();
 
-    // LinkedListAsync<i32>
+    // LinkedListAsync<i32> exposes only a non-blocking pop_front(), so wait-poll
+    // until the actor has pushed each value. This replaces a fixed sleep with a
+    // deterministic wait; the deadline only guards against a genuine hang.
+    let wait_pop = |q: &LinkedListAsync<i32>| -> Option<i32> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(v) = q.pop_front() {
+                return Some(v);
+            }
+            if Instant::now() >= deadline {
+                return None;
+            }
+            thread::yield_now();
+        }
+    };
+
     let result_i32 = LinkedListAsync::<i32>::new();
     root_handle.send(Value::AskIntByLinkedListAsync((1, result_i32.clone())));
     root_handle.send(Value::AskIntByLinkedListAsync((2, result_i32.clone())));
     root_handle.send(Value::AskIntByLinkedListAsync((3, result_i32.clone())));
-    thread::sleep(Duration::from_millis(5));
-    let i = result_i32.pop_front();
-    assert_eq!(Some(10), i);
-    let i = result_i32.pop_front();
-    assert_eq!(Some(20), i);
-    let i = result_i32.pop_front();
-    assert_eq!(Some(30), i);
+    assert_eq!(Some(10), wait_pop(&result_i32));
+    assert_eq!(Some(20), wait_pop(&result_i32));
+    assert_eq!(Some(30), wait_pop(&result_i32));
 
-    // BlockingQueue<i32>
+    // BlockingQueue<i32>: take() with a timeout blocks until the actor offers,
+    // so the data path is deterministic under load. The generous 5s ceiling only
+    // bounds a genuine hang rather than racing a fixed sleep.
     let mut result_i32 = BlockingQueue::<i32>::new();
-    result_i32.timeout = Some(Duration::from_millis(1));
+    result_i32.timeout = Some(Duration::from_secs(5));
     root_handle.send(Value::AskIntByBlockingQueue((4, result_i32.clone())));
     root_handle.send(Value::AskIntByBlockingQueue((5, result_i32.clone())));
     root_handle.send(Value::AskIntByBlockingQueue((6, result_i32.clone())));
-    thread::sleep(Duration::from_millis(5));
-    let i = result_i32.take();
-    assert_eq!(Some(40), i);
-    let i = result_i32.take();
-    assert_eq!(Some(50), i);
-    let i = result_i32.take();
-    assert_eq!(Some(60), i);
+    assert_eq!(Some(40), result_i32.take());
+    assert_eq!(Some(50), result_i32.take());
+    assert_eq!(Some(60), result_i32.take());
 
-    // Timeout case:
+    // Timeout case: the actor returns early for negatives (never offers), so a
+    // short timeout makes take() return None deterministically.
+    result_i32.timeout = Some(Duration::from_millis(1));
     root_handle.send(Value::AskIntByBlockingQueue((-1, result_i32.clone())));
-    let i = result_i32.take();
-    assert_eq!(None, i);
+    assert_eq!(None, result_i32.take());
 }
 
 #[test]

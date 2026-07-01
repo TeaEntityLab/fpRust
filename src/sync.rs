@@ -130,19 +130,19 @@ where
 {
     fn is_started(&mut self) -> bool {
         let started_alive = self.started_alive.lock().unwrap();
-        let &(ref started, _) = &*started_alive;
+        let (started, _) = &*started_alive;
         started.load(Ordering::SeqCst)
     }
 
     fn is_alive(&mut self) -> bool {
         let started_alive = self.started_alive.lock().unwrap();
-        let &(_, ref alive) = &*started_alive;
+        let (_, alive) = &*started_alive;
         alive.load(Ordering::SeqCst)
     }
 
     fn start(&mut self) {
         let started_alive = self.started_alive.lock().unwrap();
-        let &(ref started, ref alive) = &*started_alive;
+        let (started, alive) = &*started_alive;
         if started.load(Ordering::SeqCst) {
             return;
         }
@@ -172,7 +172,7 @@ where
 
     fn stop(&mut self) {
         let started_alive = self.started_alive.lock().unwrap();
-        let &(ref started, ref alive) = &*started_alive;
+        let (started, alive) = &*started_alive;
         if !started.load(Ordering::SeqCst) {
             return;
         }
@@ -211,7 +211,7 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let started_alive = self.started_alive.lock().unwrap();
-        let &(ref started, ref alive) = &*started_alive;
+        let (started, alive) = &*started_alive;
 
         if started.load(Ordering::SeqCst) && (!alive.load(Ordering::SeqCst)) {
             Poll::Ready(self.clone().result())
@@ -256,7 +256,7 @@ impl CountDownLatch {
 
     pub fn countdown(&self) {
         {
-            let &(ref lock, ref cvar) = &*self.pair.clone();
+            let (lock, cvar) = &*self.pair.clone();
             let mut started = lock.lock().unwrap();
             if *started > 0 {
                 *started -= 1;
@@ -274,7 +274,7 @@ impl CountDownLatch {
     }
 
     pub fn wait(&self) {
-        let &(ref lock, ref cvar) = &*self.pair;
+        let (lock, cvar) = &*self.pair;
 
         /*
         let mut result = lock.lock();
@@ -304,7 +304,7 @@ impl Future for CountDownLatch {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let &(ref remaining, _) = &*self.pair;
+        let (remaining, _) = &*self.pair;
         let count = remaining.lock().unwrap();
         if *count > 0 {
             {
@@ -603,7 +603,13 @@ fn test_will_sync_new() {
     })));
     h.start();
     latch.clone().wait();
-    thread::sleep(time::Duration::from_millis(1));
+    // The latch fires inside publish() (one statement before this.stop() flips
+    // alive=false on the handler thread), so wait for that flip deterministically
+    // instead of racing a fixed sleep. The 5s ceiling only bounds a genuine hang.
+    let alive_deadline = time::Instant::now() + time::Duration::from_secs(5);
+    while h.is_alive() && time::Instant::now() < alive_deadline {
+        thread::yield_now();
+    }
     assert_eq!(false, h.is_alive());
     assert_eq!(true, h.is_started());
     assert_eq!(1, h.result().unwrap());

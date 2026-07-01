@@ -128,7 +128,7 @@ impl<Y: 'static + Send + Sync> MonadIO<Y> {
                 let mut sub_handler_thread = Arc::new(self.sub_handler.clone());
                 ob_handler.lock().unwrap().post(RawFunc::new(move || {
                     match Arc::make_mut(&mut sub_handler_thread) {
-                        Some(ref mut sub_handler) => {
+                        Some(sub_handler) => {
                             let effect = _effect.clone();
                             let s = s.clone();
                             sub_handler.lock().unwrap().post(RawFunc::new(move || {

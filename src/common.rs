@@ -9,6 +9,7 @@ use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(feature = "for_futures")]
 use futures::executor::ThreadPool;
@@ -19,10 +20,7 @@ use std::mem;
 #[cfg(feature = "for_futures")]
 use std::pin::Pin;
 #[cfg(feature = "for_futures")]
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Once,
-};
+use std::sync::{atomic::AtomicBool, Once};
 #[cfg(feature = "for_futures")]
 use std::task::{Context, Poll, Waker};
 
@@ -247,15 +245,6 @@ where
         }
         return Poll::Ready(None);
     }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        // Check alive
-        let alive = self.alive.lock().unwrap();
-        if alive.load(Ordering::SeqCst) {
-            return (0, Some(0));
-        }
-        return (0, None);
-    }
 }
 
 impl<T> Default for LinkedListAsync<Arc<T>> {
@@ -356,12 +345,19 @@ pub trait UniqueId<T> {
     fn get_id(&self) -> T;
 }
 
+static ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
 pub fn generate_id() -> String {
     let since_the_epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards");
 
-    format!("{:?}{:?}", thread::current().id(), since_the_epoch)
+    // A process-wide monotonic counter guarantees uniqueness even for
+    // same-thread, same-tick, back-to-back calls: SystemTime resolution is
+    // coarse, so thread id + timestamp alone collide (see UniqueId).
+    let seq = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    format!("{:?}{:?}-{}", thread::current().id(), since_the_epoch, seq)
 }
 
 /**
@@ -620,16 +616,20 @@ fn test_common_get_mut() {
 
 #[test]
 fn test_common_generate_id_non_empty_and_changes() {
-    use std::thread;
-    use std::time::Duration;
+    use std::collections::HashSet;
 
     let a = generate_id();
     assert_eq!(false, a.is_empty());
 
-    // Ids embed the elapsed time since epoch; after a delay a fresh id differs.
-    thread::sleep(Duration::from_millis(2));
-    let b = generate_id();
-    assert_eq!(true, a != b);
+    // UniqueId contract: ids must be unique even for tight, same-thread,
+    // same-tick, back-to-back calls (SystemTime resolution alone is too
+    // coarse to guarantee this; a monotonic counter does).
+    let n = 10_000;
+    let mut seen = HashSet::new();
+    for _ in 0..n {
+        assert_eq!(true, seen.insert(generate_id()));
+    }
+    assert_eq!(n, seen.len());
 }
 
 #[test]
@@ -644,6 +644,22 @@ fn test_common_linked_list_async_fifo() {
     assert_eq!(Some(3), list.pop_front());
     // Draining past the end returns None.
     assert_eq!(None, list.pop_front());
+}
+
+#[cfg(feature = "for_futures")]
+#[test]
+fn test_common_linked_list_async_size_hint_never_lies() {
+    use futures::stream::Stream;
+
+    // size_hint's upper bound is a promise. A live stream can still receive
+    // items via push_back, so it must NOT report Some(0) ("finished") — that
+    // lets Stream combinators drop pending items. A closed stream must not be
+    // reported as falsely unbounded either. (0, None) is correct for both.
+    let mut list = LinkedListAsync::<i32>::new();
+    assert_eq!((0, None), Stream::size_hint(&list));
+
+    list.close_stream();
+    assert_eq!((0, None), Stream::size_hint(&list));
 }
 
 #[test]
@@ -730,14 +746,14 @@ fn test_common_subscription_func_clone_equal_same_id() {
 
 #[test]
 fn test_common_subscription_func_distinct_ids() {
-    use std::thread;
-    use std::time::Duration;
-
+    // Back-to-back construction (no sleep): independently-constructed
+    // subscriptions must have distinct ids, which is what makes PartialEq
+    // and Publisher::delete_observer correct. (The reliable regression
+    // guard for the underlying same-tick collision is the tight-loop
+    // test on generate_id itself.)
     let a = SubscriptionFunc::new(|_x: Arc<i32>| {});
-    thread::sleep(Duration::from_millis(2));
     let b = SubscriptionFunc::new(|_x: Arc<i32>| {});
 
-    // Independently constructed subscriptions are not equal.
     assert_eq!(true, a.get_id() != b.get_id());
     assert_eq!(false, a == b);
 }

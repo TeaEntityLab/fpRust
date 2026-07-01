@@ -104,20 +104,20 @@ impl HandlerThread {
 impl Handler for HandlerThread {
     fn is_started(&mut self) -> bool {
         let started_alive = self.started_alive.lock().unwrap();
-        let &(ref started, _) = &*started_alive;
+        let (started, _) = &*started_alive;
         started.load(Ordering::SeqCst)
     }
 
     fn is_alive(&mut self) -> bool {
         let started_alive = self.started_alive.lock().unwrap();
-        let &(_, ref alive) = &*started_alive;
+        let (_, alive) = &*started_alive;
         alive.load(Ordering::SeqCst)
     }
 
     fn start(&mut self) {
         {
             let started_alive = self.started_alive.lock().unwrap();
-            let &(ref started, ref alive) = &*started_alive;
+            let (started, alive) = &*started_alive;
 
             if started.load(Ordering::SeqCst) {
                 return;
@@ -141,7 +141,7 @@ impl Handler for HandlerThread {
     fn stop(&mut self) {
         {
             let started_alive = self.started_alive.lock().unwrap();
-            let &(ref started, ref alive) = &*started_alive;
+            let (started, alive) = &*started_alive;
 
             if !started.load(Ordering::SeqCst) {
                 return;

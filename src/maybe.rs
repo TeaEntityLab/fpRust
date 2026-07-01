@@ -113,7 +113,10 @@ impl<T: 'static> Maybe<T> {
         F: FnOnce(&Option<T>) -> Option<G> + Clone + 'static,
         G: 'static,
     {
-        maybe_func.chain(|f| self.map(f.clone().unwrap()))
+        maybe_func.chain(|f| match f {
+            Some(func) => self.map(func.clone()),
+            None => Maybe::just(None::<G>),
+        })
     }
 }
 
@@ -307,6 +310,18 @@ fn test_maybe_ap_applies_wrapped_fn() {
     let wrapped_fn = Maybe::val(|x: &Option<i32>| Some(x.unwrap() * 10));
     let result = value.ap(&wrapped_fn);
     assert_eq!(Some(50), result.option());
+}
+
+#[test]
+fn test_maybe_ap_none_function_yields_none() {
+    // Applicative law: applying an absent function (Nothing) must yield
+    // Nothing, NOT panic. `ap` internally unwrapped the function option,
+    // so a None function crashed instead of short-circuiting to None.
+    let value = Maybe::val(5);
+    let no_fn: Maybe<fn(&Option<i32>) -> Option<i32>> = Maybe::just(None);
+    let result: Maybe<i32> = value.ap(&no_fn);
+    assert_eq!(true, result.null());
+    assert_eq!(None, result.option());
 }
 
 #[test]
