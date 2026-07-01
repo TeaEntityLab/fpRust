@@ -16,7 +16,7 @@
 //!
 //! # Shutdown
 //!
-//! Cooperative `stop` clears `alive` and closes channels; there is no thread join.
+//! Cooperative `stop` clears `alive` only (the shared op channel is not closed); there is no thread join.
 //! Graceful shutdown redesign is **deferred** (same class of limitation as `Handler` / `Actor`).
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -142,6 +142,10 @@ macro_rules! cor_yield {
 }
 
 /// Delegate to `target` and return its yield result (`yield from` semantics).
+///
+/// **Deadlock:** if both `this` and `target` run in sync mode and wait on each
+/// other, they deadlock. Keep yield targets async, or make exactly one sync
+/// coroutine the entry driver (see [`cor_start!`](crate::cor_start) / [`set_async`](Cor::set_async)).
 #[macro_export]
 macro_rules! cor_yield_from {
     ($this:expr, $target:expr, $sent_to_inside:expr) => {
@@ -173,7 +177,7 @@ type CorEffect<RETURN, RECEIVE> =
 
 /// Generator-like coroutine with typed yield in/out channels.
 ///
-/// Use [`cor_yield!`], [`cor_yield_from!`], and [`cor_start!`] from user code.
+/// Use [`cor_yield!`], [`cor_yield_from!`], and [`cor_start!`](crate::cor_start) from user code.
 #[derive(Clone)]
 pub struct Cor<RETURN: 'static, RECEIVE: 'static> {
     is_async: bool,

@@ -51,7 +51,11 @@ Some public APIs are easy to miss. See [docs/PROJECT_NOTES.md](docs/PROJECT_NOTE
 - **Push→pull bridge** — `Publisher::as_blocking_queue` / `subscribe_blocking_queue` forward published values into a `BlockingQueue` for deterministic pulling; `Publisher::subscribe_on` delivers off-thread.
 - **Sync↔async bridge** — `BlockingQueue::{take,poll}_result_as_future` (`for_futures`) `.await` a blocking queue.
 - **Pattern do-notation** — `do_m_pattern!` extends `do_m!` with typed `let`, reassignment, `exec`, and `ret`.
-- **Utility macros** — `map_insert!` (bulk `HashMap` fill), `cor_newmutex_and_start!` / `cor_yield!` (coroutine building), `contains!`, `reverse!`.
+- **Value lifting** — `monadio::of` and `From<Y>` for `MonadIO::just` / `MonadIO::from(val)`.
+- **Publisher side-effect map** — `Publisher::map` runs a callback per publish (return value discarded; unlike `MonadIO::map`).
+- **Cross-type coroutine yield** — `Cor::yield_from` can bridge coroutines with different yield/receive type parameters.
+- **`LinkedListAsync` streams** — implements `futures::Stream` (`for_futures`); used by `subscribe_as_stream` and `actor_ask`.
+- **Utility macros** — `map_insert!` (bulk `HashMap` fill; brace `k: v`, bracket `k => v`, and comma forms), `cor_newmutex!` / `cor_newmutex_and_start!` / `cor_yield!`, `contains!`, `reverse!`.
 
 ### Deferred / non-goals
 

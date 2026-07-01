@@ -6,9 +6,9 @@
 //! |------|-------------------|
 //! | Module (`sync`) | `sync` (part of default `pure`) |
 //! | [`WillAsync`] | `publisher` **and** `handler` |
-//! | [`WillAsync`] as [`Future`] | above + `for_futures` |
+//! | [`WillAsync`] as `Future` | above + `for_futures` |
 //! | [`CountDownLatch`] as `Future` | `for_futures` |
-//! | [`BlockingQueue::poll_result_as_future`] / [`BlockingQueue::take_result_as_future`] | `for_futures` |
+//! | `BlockingQueue::poll_result_as_future` / `BlockingQueue::take_result_as_future` | `for_futures` |
 //!
 //! Enable everything this module can expose in tests with the `test_runtime`
 //! feature (`pure` + `for_futures`).
@@ -86,7 +86,7 @@ pub trait Will<T>: Send + Sync + 'static {
 /// exposes [`Will`] lifecycle methods.
 ///
 /// Requires **`publisher`** and **`handler`**. With **`for_futures`**, also
-/// implements [`Future`] (`Output = Option<T>`).
+/// implements [`std::future::Future`] (`Output = Option<T>`).
 #[cfg(all(feature = "publisher", feature = "handler"))]
 #[derive(Clone)]
 pub struct WillAsync<T> {
@@ -244,7 +244,7 @@ where
 ///
 /// [`wait`](CountDownLatch::wait) blocks the current thread until the internal
 /// counter reaches zero. With the **`for_futures`** feature, also implements
-/// [`Future`] (`Output = ()`).
+/// [`std::future::Future`] (`Output = ()`).
 #[derive(Debug, Clone)]
 pub struct CountDownLatch {
     pair: Arc<(Arc<Mutex<u64>>, Condvar)>,
@@ -336,7 +336,9 @@ pub trait Queue<T> {
     fn take(&mut self) -> Option<T>;
 }
 
-/// Thread-safe bounded channel wrapper (Java `BlockingQueue`-like).
+/// Thread-safe **unbounded** channel wrapper with Java `BlockingQueue`-like
+/// blocking `take`. Note: unlike a typical bounded Java `BlockingQueue`, `put`/`offer`
+/// never block on capacity — the backing `mpsc::channel()` has no maximum size.
 ///
 /// # Fields
 ///
@@ -344,7 +346,7 @@ pub trait Queue<T> {
 ///   [`recv_timeout`](std::sync::mpsc::Receiver::recv_timeout) instead of blocking forever.
 /// * `panic` — when `true`, send/receive errors panic instead of mapping to `None`.
 ///
-/// With **`for_futures`**, [`BlockingQueue::poll_result_as_future`] and [`BlockingQueue::take_result_as_future`]
+/// With **`for_futures`**, `BlockingQueue::poll_result_as_future` and `BlockingQueue::take_result_as_future`
 /// offload blocking recv to the shared thread pool.
 #[derive(Debug, Clone)]
 pub struct BlockingQueue<T> {

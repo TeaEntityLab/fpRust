@@ -16,6 +16,12 @@ keywords = ["functional","rx","monad","optional","pubsub"]
 [badges.maintenance]
 status = "passively-maintained"
 
+# docs.rs builds default features only; enable `for_futures` so the async/Rx
+# surface (Future/Stream impls, *_as_future, to_future, stream helpers) is
+# documented on docs.rs instead of being hidden.
+[package.metadata.docs.rs]
+features = ["for_futures"]
+
 [lib]
 name = "fp_rust"
 path = "src/lib.rs"

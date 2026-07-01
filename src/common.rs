@@ -16,11 +16,12 @@ use futures::executor::ThreadPool;
 #[cfg(feature = "for_futures")]
 use futures::stream::Stream;
 #[cfg(feature = "for_futures")]
-use std::mem;
-#[cfg(feature = "for_futures")]
 use std::pin::Pin;
 #[cfg(feature = "for_futures")]
-use std::sync::{atomic::AtomicBool, Once};
+use std::sync::{
+    atomic::{AtomicBool, AtomicPtr},
+    Once,
+};
 #[cfg(feature = "for_futures")]
 use std::task::{Context, Poll, Waker};
 
@@ -42,27 +43,26 @@ pub struct SharedThreadPoolReader {
 /// Returns a clone of the lazily initialized process-wide thread pool.
 #[cfg(feature = "for_futures")]
 pub fn shared_thread_pool() -> SharedThreadPoolReader {
-    // Initialize it to a null value
-    static mut SINGLETON: *const SharedThreadPoolReader =
-        std::ptr::null::<SharedThreadPoolReader>();
+    // Leaked, lazily-initialized singleton pointer. `AtomicPtr` avoids `static mut`
+    // (edition-2024 hard error) and `Box::into_raw` avoids a `Box`→ptr `transmute`.
+    static SINGLETON: AtomicPtr<SharedThreadPoolReader> = AtomicPtr::new(std::ptr::null_mut());
     static ONCE: Once = Once::new();
 
-    unsafe {
-        ONCE.call_once(|| {
-            // Make it
-            let singleton = SharedThreadPoolReader {
-                inner: Arc::new(Mutex::new(
-                    ThreadPool::new().expect("Unable to create threadpool"),
-                )),
-            };
+    ONCE.call_once(|| {
+        let singleton = SharedThreadPoolReader {
+            inner: Arc::new(Mutex::new(
+                ThreadPool::new().expect("Unable to create threadpool"),
+            )),
+        };
 
-            // Put it in the heap so it can outlive this call
-            SINGLETON = mem::transmute::<Box<SharedThreadPoolReader>, *const SharedThreadPoolReader>(Box::new(singleton));
-        });
+        // Put it on the heap so it outlives this call; publish with Release.
+        SINGLETON.store(Box::into_raw(Box::new(singleton)), Ordering::Release);
+    });
 
-        // Now we give out a copy of the data that is safe to use concurrently.
-        (*SINGLETON).clone()
-    }
+    // `call_once` guarantees the store happened-before this load; deref is the
+    // only unsafe op and the pointer is non-null and never freed.
+    let ptr = SINGLETON.load(Ordering::Acquire);
+    unsafe { (*ptr).clone() }
 }
 
 /**
@@ -141,7 +141,7 @@ pub fn get_mut<T>(v: &mut Vec<T>, index: usize) -> Option<&mut T> {
 /// Thread-safe FIFO queue backed by a [`LinkedList`].
 ///
 /// Clones share the same underlying list (`Arc<Mutex<..>>`). With the
-/// `for_futures` feature, the type also implements [`Stream`].
+/// `for_futures` feature, the type also implements `Stream`.
 #[derive(Debug, Clone)]
 pub struct LinkedListAsync<T> {
     inner: Arc<Mutex<LinkedList<T>>>,
@@ -814,4 +814,56 @@ fn test_common_subscription_func_no_buffer_until_stream_opened() {
     sub.on_next(Arc::new(5));
     assert_eq!(Some(Arc::new(4)), stream.pop_front());
     assert_eq!(Some(Arc::new(5)), stream.pop_front());
+}
+
+#[cfg(feature = "for_futures")]
+#[test]
+fn test_common_shared_thread_pool_concurrent_init_is_singleton() {
+    use std::sync::mpsc;
+    use std::sync::Barrier;
+    use std::thread;
+
+    const N: usize = 16;
+    let barrier = Arc::new(Barrier::new(N));
+    let (tx, rx) = mpsc::channel();
+
+    for _ in 0..N {
+        let barrier = barrier.clone();
+        let tx = tx.clone();
+        thread::spawn(move || {
+            barrier.wait();
+            let handle = shared_thread_pool();
+            let inner_ptr = Arc::as_ptr(&handle.inner) as usize;
+            tx.send(inner_ptr).expect("send inner Arc pointer");
+        });
+    }
+    drop(tx);
+
+    let mut inner_ptrs = Vec::with_capacity(N);
+    for ptr in rx {
+        inner_ptrs.push(ptr);
+    }
+    assert_eq!(N, inner_ptrs.len());
+
+    let expected = inner_ptrs[0];
+    assert_ne!(0, expected, "inner pool Arc must be initialized");
+    for &observed in &inner_ptrs[1..] {
+        assert_eq!(
+            expected, observed,
+            "all threads must observe the same shared inner pool Arc"
+        );
+    }
+
+    // Prove the singleton pool is live: lock inner and schedule work.
+    let (done_tx, done_rx) = mpsc::channel();
+    let handle = shared_thread_pool();
+    {
+        let pool = handle.inner.lock().unwrap();
+        pool.spawn_ok(async move {
+            let _ = done_tx.send(());
+        });
+    }
+    done_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("shared thread pool must execute a spawned task");
 }
